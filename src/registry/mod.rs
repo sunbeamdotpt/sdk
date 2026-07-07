@@ -134,7 +134,7 @@ impl Category {
         }
     }
 
-    /// Lowercase name used for CLI matching.
+    /// Lowercase service name.
     pub fn name(&self) -> &'static str {
         match self {
             Self::Auth => "auth",

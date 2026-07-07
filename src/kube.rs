@@ -64,9 +64,7 @@ pub async fn get_client() -> Result<Client> {
     let ctx_name = context();
     if ctx_name.is_empty() {
         return Err(SunbeamError::config(
-            "active Sunbeam context has no kube-context. Set one with \
-             `sunbeam config set --context-name <name> --kube-context <kctx>` \
-             (where <kctx> matches an entry in `kubectl config get-contexts`).",
+            "active Sunbeam context has no kube-context; configure one in the active context",
         ));
     }
     let kubeconfig = Kubeconfig::read()

@@ -1,63 +1,18 @@
-//! Kanban board template commands.
+//! Kanban board template operations.
 
 use crate::error::{Result, ResultExt};
-use crate::kanban::client::TemplateColumn as ProtoTemplateColumn;
 use crate::kanban::client::{
     self, CreateTemplateRequest, DeleteTemplateRequest, GetTemplateRequest, ListTemplatesRequest,
-    TemplatesServiceClient, UpdateTemplateRequest, request_with_object_id,
+    TemplateColumn as ProtoTemplateColumn, TemplatesServiceClient, UpdateTemplateRequest,
+    request_with_object_id,
 };
 use crate::kanban::resolve;
 use crate::logger::Logger;
 use async_trait::async_trait;
-use clap::Subcommand;
 use prost_types::Timestamp;
 use serde::Serialize;
 use tonic::Request;
 use tonic::metadata::MetadataValue;
-
-/// Board template actions.
-#[derive(Debug, Subcommand)]
-pub enum TemplateAction {
-    /// List templates.
-    List {
-        /// Project ID (omit for global templates).
-        #[arg(short, long)]
-        project: Option<String>,
-    },
-    /// Get a template.
-    Get {
-        /// Template ID or name.
-        template_id: String,
-    },
-    /// Create a template.
-    Create {
-        /// Project ID (omit for global).
-        #[arg(short, long)]
-        project: Option<String>,
-        /// Template name.
-        #[arg(short, long)]
-        name: String,
-        /// Description.
-        #[arg(short, long)]
-        description: Option<String>,
-    },
-    /// Update a template.
-    Update {
-        /// Template ID or name.
-        template_id: String,
-        /// New name.
-        #[arg(short, long)]
-        name: Option<String>,
-        /// New description.
-        #[arg(short, long)]
-        description: Option<String>,
-    },
-    /// Delete a template.
-    Delete {
-        /// Template ID or name.
-        template_id: String,
-    },
-}
 
 /// Serializable column preset for output.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -123,18 +78,6 @@ pub struct TemplateDeleteOut {
     pub deleted: bool,
     /// Deleted template ID.
     pub template_id: String,
-}
-
-/// Result of running a board template command.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum TemplateOutput {
-    /// List of templates.
-    List(Vec<BoardTemplateOut>),
-    /// Single template.
-    Template(BoardTemplateOut),
-    /// Deletion confirmation.
-    Deleted(TemplateDeleteOut),
 }
 
 /// Format a Prost Timestamp as an RFC 3339 string.
@@ -250,85 +193,98 @@ pub async fn build_client(
     ))
 }
 
-/// Run a board template command and return the result data.
-pub async fn run(cmd: TemplateAction, client: &mut dyn TemplateService) -> Result<TemplateOutput> {
-    match cmd {
-        TemplateAction::List { project } => {
-            let req = ListTemplatesRequest {
-                project_id: project.unwrap_or_default(),
-            };
-            let resp = client.list_templates(req).await?;
-            let templates: Vec<BoardTemplateOut> =
-                resp.templates.iter().map(|t| t.into()).collect();
-            Ok(TemplateOutput::List(templates))
-        }
-        TemplateAction::Get { template_id } => {
-            let template_id = resolve::resolve_template_id(client, None, &template_id).await?;
-            let req = GetTemplateRequest {
-                template_id: template_id.clone(),
-            };
-            let resp = client.get_template(req).await?;
-            Ok(TemplateOutput::Template(BoardTemplateOut::from(&resp)))
-        }
-        TemplateAction::Create {
-            project,
-            name,
-            description,
-        } => {
-            let object_id = project.clone().unwrap_or_else(|| "global".to_string());
-            let req = mutation_request(
-                CreateTemplateRequest {
-                    project_id: project.unwrap_or_default(),
-                    name,
-                    description: description.unwrap_or_default(),
-                    columns: Vec::new(),
-                },
-                &object_id,
-            )?;
-            let resp = client.create_template(req).await?;
-            Ok(TemplateOutput::Template(BoardTemplateOut::from(&resp)))
-        }
-        TemplateAction::Update {
-            template_id,
-            name,
-            description,
-        } => {
-            let template_id = resolve::resolve_template_id(client, None, &template_id).await?;
-            let mut paths = Vec::new();
-            if name.is_some() {
-                paths.push("name".to_string());
-            }
-            if description.is_some() {
-                paths.push("description".to_string());
-            }
-            let req = mutation_request(
-                UpdateTemplateRequest {
-                    template_id: template_id.clone(),
-                    update_mask: Some(prost_types::FieldMask { paths }),
-                    name: name.unwrap_or_default(),
-                    description: description.unwrap_or_default(),
-                    columns: Vec::new(),
-                },
-                &template_id,
-            )?;
-            let resp = client.update_template(req).await?;
-            Ok(TemplateOutput::Template(BoardTemplateOut::from(&resp)))
-        }
-        TemplateAction::Delete { template_id } => {
-            let template_id = resolve::resolve_template_id(client, None, &template_id).await?;
-            let req = mutation_request(
-                DeleteTemplateRequest {
-                    template_id: template_id.clone(),
-                },
-                &template_id,
-            )?;
-            client.delete_template(req).await?;
-            Ok(TemplateOutput::Deleted(TemplateDeleteOut {
-                deleted: true,
-                template_id,
-            }))
-        }
+/// List board templates.
+pub async fn list_templates(
+    client: &mut dyn TemplateService,
+    project_id: Option<&str>,
+) -> Result<Vec<BoardTemplateOut>> {
+    let req = ListTemplatesRequest {
+        project_id: project_id.unwrap_or("").to_string(),
+    };
+    let resp = client.list_templates(req).await?;
+    Ok(resp.templates.iter().map(|t| t.into()).collect())
+}
+
+/// Get a board template.
+pub async fn get_template(
+    client: &mut dyn TemplateService,
+    template_id: &str,
+) -> Result<BoardTemplateOut> {
+    let template_id = resolve::resolve_template_id(client, None, template_id).await?;
+    let req = GetTemplateRequest {
+        template_id: template_id.clone(),
+    };
+    let resp = client.get_template(req).await?;
+    Ok(BoardTemplateOut::from(&resp))
+}
+
+/// Create a board template.
+pub async fn create_template(
+    client: &mut dyn TemplateService,
+    project_id: Option<&str>,
+    name: &str,
+    description: Option<&str>,
+) -> Result<BoardTemplateOut> {
+    let object_id = project_id.unwrap_or("global").to_string();
+    let req = mutation_request(
+        CreateTemplateRequest {
+            project_id: project_id.unwrap_or("").to_string(),
+            name: name.to_string(),
+            description: description.unwrap_or("").to_string(),
+            columns: Vec::new(),
+        },
+        &object_id,
+    )?;
+    let resp = client.create_template(req).await?;
+    Ok(BoardTemplateOut::from(&resp))
+}
+
+/// Update a board template.
+pub async fn update_template(
+    client: &mut dyn TemplateService,
+    template_id: &str,
+    name: Option<&str>,
+    description: Option<&str>,
+) -> Result<BoardTemplateOut> {
+    let template_id = resolve::resolve_template_id(client, None, template_id).await?;
+    let mut paths = Vec::new();
+    if name.is_some() {
+        paths.push("name".to_string());
     }
+    if description.is_some() {
+        paths.push("description".to_string());
+    }
+    let req = mutation_request(
+        UpdateTemplateRequest {
+            template_id: template_id.clone(),
+            update_mask: Some(prost_types::FieldMask { paths }),
+            name: name.unwrap_or("").to_string(),
+            description: description.unwrap_or("").to_string(),
+            columns: Vec::new(),
+        },
+        &template_id,
+    )?;
+    let resp = client.update_template(req).await?;
+    Ok(BoardTemplateOut::from(&resp))
+}
+
+/// Delete a board template.
+pub async fn delete_template(
+    client: &mut dyn TemplateService,
+    template_id: &str,
+) -> Result<TemplateDeleteOut> {
+    let template_id = resolve::resolve_template_id(client, None, template_id).await?;
+    let req = mutation_request(
+        DeleteTemplateRequest {
+            template_id: template_id.clone(),
+        },
+        &template_id,
+    )?;
+    client.delete_template(req).await?;
+    Ok(TemplateDeleteOut {
+        deleted: true,
+        template_id,
+    })
 }
 
 #[cfg(test)]
@@ -370,19 +326,8 @@ mod tests {
                 })
             });
 
-        let out = run(
-            TemplateAction::List {
-                project: Some("proj_1".into()),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            TemplateOutput::List(t) => assert_eq!(t.len(), 1),
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let templates = list_templates(&mut mock, Some("proj_1")).await.unwrap();
+        assert_eq!(templates.len(), 1);
     }
 
     #[tokio::test]
@@ -393,16 +338,8 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board_template_fixture()));
 
-        let out = run(
-            TemplateAction::Get {
-                template_id: "tmpl_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, TemplateOutput::Template(_)));
+        let template = get_template(&mut mock, "tmpl_1").await.unwrap();
+        assert_eq!(template.id, "tmpl_1");
     }
 
     #[tokio::test]
@@ -416,18 +353,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board_template_fixture()));
 
-        let out = run(
-            TemplateAction::Create {
-                project: Some("proj_1".into()),
-                name: "Onboarding".into(),
-                description: None,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, TemplateOutput::Template(_)));
+        let template = create_template(&mut mock, Some("proj_1"), "Onboarding", None)
+            .await
+            .unwrap();
+        assert_eq!(template.id, "tmpl_1");
     }
 
     #[tokio::test]
@@ -441,18 +370,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board_template_fixture()));
 
-        let out = run(
-            TemplateAction::Update {
-                template_id: "tmpl_1".into(),
-                name: Some("Renamed".into()),
-                description: None,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, TemplateOutput::Template(_)));
+        let template = update_template(&mut mock, "tmpl_1", Some("Renamed"), None)
+            .await
+            .unwrap();
+        assert_eq!(template.id, "tmpl_1");
     }
 
     #[tokio::test]
@@ -463,22 +384,9 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let out = run(
-            TemplateAction::Delete {
-                template_id: "tmpl_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            TemplateOutput::Deleted(d) => {
-                assert!(d.deleted);
-                assert_eq!(d.template_id, "tmpl_1");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let out = delete_template(&mut mock, "tmpl_1").await.unwrap();
+        assert!(out.deleted);
+        assert_eq!(out.template_id, "tmpl_1");
     }
 
     #[tokio::test]
@@ -493,11 +401,8 @@ mod tests {
                 })
             });
 
-        let out = run(TemplateAction::List { project: None }, &mut mock)
-            .await
-            .unwrap();
-
-        assert!(matches!(out, TemplateOutput::List(_)));
+        let templates = list_templates(&mut mock, None).await.unwrap();
+        assert_eq!(templates.len(), 1);
     }
 
     #[tokio::test]
@@ -511,18 +416,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board_template_fixture()));
 
-        let out = run(
-            TemplateAction::Create {
-                project: None,
-                name: "Global".into(),
-                description: Some("D".into()),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, TemplateOutput::Template(_)));
+        let template = create_template(&mut mock, None, "Global", Some("D"))
+            .await
+            .unwrap();
+        assert_eq!(template.id, "tmpl_1");
     }
 
     #[tokio::test]
@@ -538,18 +435,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board_template_fixture()));
 
-        let out = run(
-            TemplateAction::Update {
-                template_id: "tmpl_1".into(),
-                name: Some("N".into()),
-                description: Some("D".into()),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, TemplateOutput::Template(_)));
+        let template = update_template(&mut mock, "tmpl_1", Some("N"), Some("D"))
+            .await
+            .unwrap();
+        assert_eq!(template.id, "tmpl_1");
     }
 
     #[test]
@@ -577,16 +466,8 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board_template_fixture()));
 
-        let out = run(
-            TemplateAction::Get {
-                template_id: "Onboarding".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, TemplateOutput::Template(_)));
+        let template = get_template(&mut mock, "Onboarding").await.unwrap();
+        assert_eq!(template.id, "tmpl_1");
     }
 
     #[tokio::test]

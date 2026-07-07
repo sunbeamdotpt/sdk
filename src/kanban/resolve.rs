@@ -1,9 +1,9 @@
-//! Name-to-ID resolution helpers for the Kanban CLI UX layer.
+//! Name-to-ID resolution helpers for the Kanban SDK.
 //!
-//! Everywhere the CLI accepts a raw ULID identifier, users can instead supply a
-//! human-readable name. If the argument already looks like an identifier it is
-//! returned unchanged; otherwise the helper lists the visible entities and
-//! matches by name (case-insensitive exact match).
+//! Functions that accept a raw ULID identifier also accept a human-readable
+//! name. If the argument already looks like an identifier it is returned
+//! unchanged; otherwise the helper lists the visible entities and matches by
+//! name (case-insensitive exact match).
 
 use crate::error::{Result, ResultExt, SunbeamError};
 

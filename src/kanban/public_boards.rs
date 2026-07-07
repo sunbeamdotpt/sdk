@@ -1,28 +1,12 @@
-//! Kanban public board commands (unauthenticated).
+//! Kanban public board operations (unauthenticated).
 
 use crate::error::Result;
 use crate::kanban::client::{self, PublicBoardServiceClient};
 use crate::logger::Logger;
 use async_trait::async_trait;
-use clap::Subcommand;
 use serde::Serialize;
 
-/// Public board actions.
-#[derive(Debug, Subcommand)]
-pub enum PublicBoardAction {
-    /// Get a public board.
-    Get {
-        /// Board ID or name.
-        board_id: String,
-    },
-    /// List public boards in a project.
-    List {
-        /// Project ID or name.
-        project_id: String,
-    },
-}
-
-/// Serializable subset of a public board for CLI output.
+/// Serializable subset of a public board for output.
 #[derive(Debug, Serialize)]
 pub struct BoardOut {
     /// Board ID.
@@ -63,15 +47,6 @@ fn board_to_out(board: &client::Board) -> BoardOut {
         cards_count: board.cards_count,
         visibility: visibility_str(board.visibility),
     }
-}
-
-/// Output of a public board command.
-#[derive(Debug, Serialize)]
-pub enum PublicBoardOutput {
-    /// Single public board.
-    Get(BoardOut),
-    /// List of public boards.
-    List(Vec<BoardOut>),
 }
 
 /// Trait abstracting the Kanban public board service for testability.
@@ -133,34 +108,28 @@ pub async fn build_client(
     ))
 }
 
-/// Run a public board command using the provided service client.
-pub async fn run_with_client(
-    cmd: PublicBoardAction,
+/// Get a public board by ID.
+pub async fn get_public_board(
     client: &mut dyn PublicBoardService,
-) -> Result<PublicBoardOutput> {
-    match cmd {
-        PublicBoardAction::Get { board_id } => {
-            let req = client::GetPublicBoardRequest { board_id };
-            let resp = client.get_public_board(req).await?;
-            Ok(PublicBoardOutput::Get(board_to_out(&resp)))
-        }
-        PublicBoardAction::List { project_id } => {
-            let req = client::ListPublicBoardsRequest { project_id };
-            let resp = client.list_public_boards(req).await?;
-            let boards: Vec<_> = resp.boards.iter().map(board_to_out).collect();
-            Ok(PublicBoardOutput::List(boards))
-        }
-    }
+    board_id: &str,
+) -> Result<BoardOut> {
+    let req = client::GetPublicBoardRequest {
+        board_id: board_id.to_string(),
+    };
+    let resp = client.get_public_board(req).await?;
+    Ok(board_to_out(&resp))
 }
 
-/// Run a public board command.
-pub async fn run(
-    logger: &Logger,
-    cmd: PublicBoardAction,
-    server: &str,
-) -> Result<PublicBoardOutput> {
-    let mut client = build_client(logger, server).await?;
-    run_with_client(cmd, &mut client).await
+/// List public boards in a project.
+pub async fn list_public_boards(
+    client: &mut dyn PublicBoardService,
+    project_id: &str,
+) -> Result<Vec<BoardOut>> {
+    let req = client::ListPublicBoardsRequest {
+        project_id: project_id.to_string(),
+    };
+    let resp = client.list_public_boards(req).await?;
+    Ok(resp.boards.iter().map(board_to_out).collect())
 }
 
 #[cfg(test)]
@@ -196,19 +165,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_board("board_123", "proj_123", 3)));
 
-        let output = run_with_client(
-            PublicBoardAction::Get {
-                board_id: "board_123".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        let board = match output {
-            PublicBoardOutput::Get(b) => b,
-            other => panic!("expected Get output, got {other:?}"),
-        };
+        let board = get_public_board(&mut mock, "board_123").await.unwrap();
         assert_eq!(board.id, "board_123");
         assert_eq!(board.visibility, "public");
     }
@@ -225,19 +182,7 @@ mod tests {
                 })
             });
 
-        let output = run_with_client(
-            PublicBoardAction::List {
-                project_id: "proj_123".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        let boards = match output {
-            PublicBoardOutput::List(b) => b,
-            other => panic!("expected List output, got {other:?}"),
-        };
+        let boards = list_public_boards(&mut mock, "proj_123").await.unwrap();
         assert_eq!(boards.len(), 1);
         assert_eq!(boards[0].id, "board_1");
         assert_eq!(boards[0].visibility, "public");
@@ -256,19 +201,7 @@ mod tests {
             })
         });
 
-        let output = run_with_client(
-            PublicBoardAction::List {
-                project_id: "p1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        let boards = match output {
-            PublicBoardOutput::List(b) => b,
-            other => panic!("expected List output, got {other:?}"),
-        };
+        let boards = list_public_boards(&mut mock, "p1").await.unwrap();
         assert_eq!(boards.len(), 3);
         assert_eq!(boards[0].visibility, "private");
         assert_eq!(boards[1].visibility, "internal");
@@ -282,21 +215,6 @@ mod tests {
         assert_eq!(visibility_str(3), "public");
         assert_eq!(visibility_str(0), "unspecified");
         assert_eq!(visibility_str(99), "unspecified");
-    }
-
-    #[tokio::test]
-    async fn run_rejects_invalid_url() {
-        let logger = crate::logger::Logger::new(crate::logger::NoopSink);
-        let err = run(
-            &logger,
-            PublicBoardAction::Get {
-                board_id: "board_123".into(),
-            },
-            ":::not-a-url",
-        )
-        .await
-        .unwrap_err();
-        assert!(err.to_string().contains("invalid kanban server URL"));
     }
 
     #[tokio::test]

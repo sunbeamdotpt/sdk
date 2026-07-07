@@ -195,10 +195,9 @@ pub struct Context {
     #[serde(default, skip_serializing_if = "ProfileRef::is_none")]
     pub profile: ProfileRef,
 
-    /// VPN coordination server URL (Headscale). When set, `sunbeam connect`
-    /// can establish a WireGuard tunnel through this server and the CLI
-    /// will route k8s API traffic through it instead of falling back to
-    /// SSH or kubeconfig.
+    /// VPN coordination server URL (Headscale). When set, the VPN daemon
+    /// can establish a WireGuard tunnel through this server and route k8s
+    /// API traffic through it instead of falling back to SSH or kubeconfig.
     #[serde(default, rename = "vpn-url", skip_serializing_if = "String::is_empty")]
     pub vpn_url: String,
 
@@ -224,7 +223,7 @@ pub struct Context {
     /// Vpn cluster host.
     pub vpn_cluster_host: String,
 
-    /// Headscale API key for `sunbeam vpn create-key` and other admin
+    /// Headscale API key for minting VPN pre-auth keys and other admin
     /// commands. Generated once via `headscale apikeys create`. Stored
     /// in plain text — keep this file readable only by the user.
     #[serde(
@@ -582,7 +581,7 @@ pub fn get_infra_dir() -> PathBuf {
         return PathBuf::from(&ctx.infra_dir);
     }
     // Dev fallback — useful when running outside a configured context (e.g.,
-    // unit tests or `cargo run` before `sunbeam config set`).
+    // unit tests or before the active context is initialized).
     std::env::current_exe()
         .ok()
         .and_then(|p| p.canonicalize().ok())

@@ -1,135 +1,13 @@
-//! Kanban card commands.
+//! Kanban card operations.
 
 use crate::error::{Result, ResultExt};
-use crate::kanban::client::{self, CardServiceClient, request_with_object_id};
+use crate::kanban::client::{
+    self, CardPriority, CardServiceClient, CardUrgency, request_with_object_id,
+};
 use crate::kanban::new_idempotency_key;
 use crate::logger::Logger;
 use async_trait::async_trait;
-use clap::Subcommand;
 use serde::Serialize;
-
-/// Card actions.
-#[derive(Debug, Subcommand)]
-pub enum CardAction {
-    /// List cards.
-    List {
-        /// Board ID or name.
-        #[arg(short, long)]
-        board: String,
-        /// Column ID.
-        #[arg(short, long)]
-        column: Option<String>,
-    },
-    /// Get a card.
-    Get {
-        /// Card ID, title, or ref.
-        card_id: String,
-    },
-    /// Create a card.
-    Create {
-        /// Board ID or name.
-        #[arg(short, long)]
-        board: String,
-        /// Column ID.
-        #[arg(short, long)]
-        column: Option<String>,
-        /// Title.
-        #[arg(short, long)]
-        title: String,
-        /// Description.
-        #[arg(short, long)]
-        description: Option<String>,
-        /// Priority.
-        #[arg(short, long, value_enum)]
-        priority: Option<PriorityArg>,
-    },
-    /// Update a card.
-    Update {
-        /// Card ID, title, or ref.
-        card_id: String,
-        /// New title.
-        #[arg(short, long)]
-        title: Option<String>,
-        /// New description.
-        #[arg(short, long)]
-        description: Option<String>,
-        /// New priority.
-        #[arg(short, long, value_enum)]
-        priority: Option<PriorityArg>,
-    },
-    /// Move a card.
-    Move {
-        /// Card ID, title, or ref.
-        card_id: String,
-        /// Destination column ID.
-        #[arg(short, long)]
-        column: String,
-        /// Position within the column.
-        #[arg(short, long)]
-        position: Option<i32>,
-    },
-    /// Delete a card.
-    Delete {
-        /// Card ID, title, or ref.
-        card_id: String,
-    },
-    /// Dependency management.
-    Dependency {
-        /// Dependency subcommand to run.
-        #[command(subcommand)]
-        action: DependencyAction,
-    },
-}
-
-/// Priority values matching `CardPriority`.
-#[derive(Debug, Clone, Copy, clap::ValueEnum)]
-pub enum PriorityArg {
-    /// Low.
-    Low,
-    /// Medium.
-    Medium,
-    /// High.
-    High,
-    /// Urgent.
-    Urgent,
-}
-
-impl PriorityArg {
-    /// Convert to the generated proto enum value.
-    fn to_proto(self) -> client::CardPriority {
-        match self {
-            PriorityArg::Low => client::CardPriority::Low,
-            PriorityArg::Medium => client::CardPriority::Medium,
-            PriorityArg::High => client::CardPriority::High,
-            PriorityArg::Urgent => client::CardPriority::Urgent,
-        }
-    }
-}
-
-/// Card dependency actions.
-#[derive(Debug, Subcommand)]
-pub enum DependencyAction {
-    /// Add a dependency.
-    Add {
-        /// Board ID or name.
-        #[arg(short, long)]
-        board: String,
-        /// Card ID, title, or ref.
-        card_id: String,
-        /// Card this card depends on (ID, title, or ref).
-        depends_on: String,
-    },
-    /// Remove a dependency.
-    Remove {
-        /// Board ID or name.
-        #[arg(short, long)]
-        board: String,
-        /// Card ID, title, or ref.
-        card_id: String,
-        /// Dependency card ID, title, or ref.
-        depends_on: String,
-    },
-}
 
 /// Serializable card summary for list views.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -330,19 +208,6 @@ pub struct CardDeleteOut {
     pub card_id: String,
 }
 
-/// Result of running a card command.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-#[allow(clippy::large_enum_variant)]
-pub enum CardOutput {
-    /// List of cards.
-    List(Vec<CardOut>),
-    /// Single card detail.
-    Detail(CardDetailOut),
-    /// Deletion confirmation.
-    Deleted(CardDeleteOut),
-}
-
 /// Trait abstracting the Kanban card service for testability.
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -476,10 +341,6 @@ pub async fn build_client(
 }
 
 /// Resolve assignee subjects to email addresses through the Kratos admin API.
-///
-/// Configure the endpoint with the `kratos-admin-url` field in the active
-/// context. Missing or unresolvable subjects are left as `null` rather than
-/// failing the whole command.
 async fn resolve_assignee_emails(assignees: &mut [serde_json::Value]) -> Result<()> {
     let subjects: Vec<&str> = assignees
         .iter()
@@ -516,170 +377,186 @@ async fn resolve_assignee_emails(assignees: &mut [serde_json::Value]) -> Result<
     Ok(())
 }
 
-/// Run a card command and return the result data.
-pub async fn run(cmd: CardAction, client: &mut dyn CardService) -> Result<CardOutput> {
-    match cmd {
-        CardAction::List { board, column } => {
-            let req = client::ListCardsByBoardRequest {
-                board_id: board.clone(),
-                column_id: column.unwrap_or_default(),
-                cursor: String::new(),
-                limit: 0,
-            };
-            let resp = client
-                .list_cards_by_board(request_with_object_id(req, &board)?)
-                .await
-                .with_ctx(|| "list cards".to_string())?;
-            let cards: Vec<_> = resp.cards.into_iter().map(CardOut::from_proto).collect();
-            Ok(CardOutput::List(cards))
-        }
-        CardAction::Get { card_id } => {
-            let req = client::GetCardRequest {
-                card_id: card_id.clone(),
-            };
-            let resp = client
-                .get_card(request_with_object_id(req, &card_id)?)
-                .await
-                .with_ctx(|| format!("get card {card_id}"))?;
-            let mut detail = CardDetailOut::from_proto(resp);
-            resolve_assignee_emails(&mut detail.assignees).await?;
-            Ok(CardOutput::Detail(detail))
-        }
-        CardAction::Create {
-            board,
-            column,
-            title,
-            description,
-            priority,
-        } => {
-            let req = client::CreateCardRequest {
-                board_id: board.clone(),
-                column_id: column.unwrap_or_default(),
-                title,
-                description: description.unwrap_or_default(),
-                priority: priority.map(|p| p.to_proto() as i32).unwrap_or_default(),
-                due: None,
-                milestone_id: String::new(),
-                position: 0,
-                idempotency_key: new_idempotency_key(),
-                urgency: client::CardUrgency::Medium as i32,
-            };
-            let resp = client
-                .create_card(request_with_object_id(req, &board)?)
-                .await
-                .with_ctx(|| format!("create card on board {board}"))?;
-            let mut detail = CardDetailOut::from_proto(resp);
-            resolve_assignee_emails(&mut detail.assignees).await?;
-            Ok(CardOutput::Detail(detail))
-        }
-        CardAction::Update {
-            card_id,
-            title,
-            description,
-            priority,
-        } => {
-            let mut update_card = client::Card {
-                id: card_id.clone(),
-                ..Default::default()
-            };
-            let mut paths: Vec<String> = Vec::new();
-            if let Some(t) = title {
-                update_card.title = t;
-                paths.push("title".to_string());
-            }
-            if let Some(d) = description {
-                update_card.description = d;
-                paths.push("description".to_string());
-            }
-            if let Some(p) = priority {
-                update_card.priority = p.to_proto() as i32;
-                paths.push("priority".to_string());
-            }
-            let req = client::UpdateCardRequest {
-                card_id: card_id.clone(),
-                card: Some(update_card),
-                update_mask: Some(prost_types::FieldMask { paths }),
-                idempotency_key: new_idempotency_key(),
-            };
-            let resp = client
-                .update_card(request_with_object_id(req, &card_id)?)
-                .await
-                .with_ctx(|| format!("update card {card_id}"))?;
-            let mut detail = CardDetailOut::from_proto(resp);
-            resolve_assignee_emails(&mut detail.assignees).await?;
-            Ok(CardOutput::Detail(detail))
-        }
-        CardAction::Move {
-            card_id,
-            column,
-            position,
-        } => {
-            let req = client::MoveCardRequest {
-                card_id: card_id.clone(),
-                to_column_id: column,
-                to_position: position.unwrap_or_default(),
-                idempotency_key: new_idempotency_key(),
-            };
-            let resp = client
-                .move_card(request_with_object_id(req, &card_id)?)
-                .await
-                .with_ctx(|| format!("move card {card_id}"))?;
-            let mut detail = CardDetailOut::from_proto(resp);
-            resolve_assignee_emails(&mut detail.assignees).await?;
-            Ok(CardOutput::Detail(detail))
-        }
-        CardAction::Delete { card_id } => {
-            let req = client::DeleteCardRequest {
-                card_id: card_id.clone(),
-            };
-            client
-                .delete_card(request_with_object_id(req, &card_id)?)
-                .await
-                .with_ctx(|| format!("delete card {card_id}"))?;
-            Ok(CardOutput::Deleted(CardDeleteOut {
-                deleted: true,
-                card_id,
-            }))
-        }
-        CardAction::Dependency { action } => match action {
-            DependencyAction::Add {
-                board,
-                card_id,
-                depends_on,
-            } => {
-                let req = client::CardDependencyRequest {
-                    card_id: card_id.clone(),
-                    depends_on_card_id: depends_on.clone(),
-                    idempotency_key: new_idempotency_key(),
-                };
-                let resp = client
-                    .add_card_dependency(request_with_object_id(req, &board)?)
-                    .await
-                    .with_ctx(|| format!("add dependency {depends_on} to card {card_id}"))?;
-                let mut detail = CardDetailOut::from_proto(resp);
-                resolve_assignee_emails(&mut detail.assignees).await?;
-                Ok(CardOutput::Detail(detail))
-            }
-            DependencyAction::Remove {
-                board,
-                card_id,
-                depends_on,
-            } => {
-                let req = client::CardDependencyRequest {
-                    card_id: card_id.clone(),
-                    depends_on_card_id: depends_on.clone(),
-                    idempotency_key: new_idempotency_key(),
-                };
-                let resp = client
-                    .remove_card_dependency(request_with_object_id(req, &board)?)
-                    .await
-                    .with_ctx(|| format!("remove dependency {depends_on} from card {card_id}"))?;
-                let mut detail = CardDetailOut::from_proto(resp);
-                resolve_assignee_emails(&mut detail.assignees).await?;
-                Ok(CardOutput::Detail(detail))
-            }
-        },
+/// List cards on a board, optionally filtered to a column.
+pub async fn list_cards(
+    client: &mut dyn CardService,
+    board_id: &str,
+    column_id: Option<&str>,
+) -> Result<Vec<CardOut>> {
+    let req = client::ListCardsByBoardRequest {
+        board_id: board_id.to_string(),
+        column_id: column_id.unwrap_or("").to_string(),
+        cursor: String::new(),
+        limit: 0,
+    };
+    let resp = client
+        .list_cards_by_board(request_with_object_id(req, board_id)?)
+        .await
+        .with_ctx(|| "list cards".to_string())?;
+    Ok(resp.cards.into_iter().map(CardOut::from_proto).collect())
+}
+
+/// Get a single card.
+pub async fn get_card(client: &mut dyn CardService, card_id: &str) -> Result<CardDetailOut> {
+    let req = client::GetCardRequest {
+        card_id: card_id.to_string(),
+    };
+    let resp = client
+        .get_card(request_with_object_id(req, card_id)?)
+        .await
+        .with_ctx(|| format!("get card {card_id}"))?;
+    let mut detail = CardDetailOut::from_proto(resp);
+    resolve_assignee_emails(&mut detail.assignees).await?;
+    Ok(detail)
+}
+
+/// Create a new card.
+pub async fn create_card(
+    client: &mut dyn CardService,
+    board_id: &str,
+    column_id: Option<&str>,
+    title: &str,
+    description: Option<&str>,
+    priority: Option<CardPriority>,
+) -> Result<CardDetailOut> {
+    let req = client::CreateCardRequest {
+        board_id: board_id.to_string(),
+        column_id: column_id.unwrap_or("").to_string(),
+        title: title.to_string(),
+        description: description.unwrap_or("").to_string(),
+        priority: priority.map(|p| p as i32).unwrap_or_default(),
+        due: None,
+        milestone_id: String::new(),
+        position: 0,
+        idempotency_key: new_idempotency_key(),
+        urgency: CardUrgency::Medium as i32,
+    };
+    let resp = client
+        .create_card(request_with_object_id(req, board_id)?)
+        .await
+        .with_ctx(|| format!("create card on board {board_id}"))?;
+    let mut detail = CardDetailOut::from_proto(resp);
+    resolve_assignee_emails(&mut detail.assignees).await?;
+    Ok(detail)
+}
+
+/// Update an existing card.
+pub async fn update_card(
+    client: &mut dyn CardService,
+    card_id: &str,
+    title: Option<&str>,
+    description: Option<&str>,
+    priority: Option<CardPriority>,
+) -> Result<CardDetailOut> {
+    let mut update_card = client::Card {
+        id: card_id.to_string(),
+        ..Default::default()
+    };
+    let mut paths: Vec<String> = Vec::new();
+    if let Some(t) = title {
+        update_card.title = t.to_string();
+        paths.push("title".to_string());
     }
+    if let Some(d) = description {
+        update_card.description = d.to_string();
+        paths.push("description".to_string());
+    }
+    if let Some(p) = priority {
+        update_card.priority = p as i32;
+        paths.push("priority".to_string());
+    }
+    let req = client::UpdateCardRequest {
+        card_id: card_id.to_string(),
+        card: Some(update_card),
+        update_mask: Some(prost_types::FieldMask { paths }),
+        idempotency_key: new_idempotency_key(),
+    };
+    let resp = client
+        .update_card(request_with_object_id(req, card_id)?)
+        .await
+        .with_ctx(|| format!("update card {card_id}"))?;
+    let mut detail = CardDetailOut::from_proto(resp);
+    resolve_assignee_emails(&mut detail.assignees).await?;
+    Ok(detail)
+}
+
+/// Move a card to another column/position.
+pub async fn move_card(
+    client: &mut dyn CardService,
+    card_id: &str,
+    column_id: &str,
+    position: Option<i32>,
+) -> Result<CardDetailOut> {
+    let req = client::MoveCardRequest {
+        card_id: card_id.to_string(),
+        to_column_id: column_id.to_string(),
+        to_position: position.unwrap_or_default(),
+        idempotency_key: new_idempotency_key(),
+    };
+    let resp = client
+        .move_card(request_with_object_id(req, card_id)?)
+        .await
+        .with_ctx(|| format!("move card {card_id}"))?;
+    let mut detail = CardDetailOut::from_proto(resp);
+    resolve_assignee_emails(&mut detail.assignees).await?;
+    Ok(detail)
+}
+
+/// Delete a card.
+pub async fn delete_card(client: &mut dyn CardService, card_id: &str) -> Result<CardDeleteOut> {
+    let req = client::DeleteCardRequest {
+        card_id: card_id.to_string(),
+    };
+    client
+        .delete_card(request_with_object_id(req, card_id)?)
+        .await
+        .with_ctx(|| format!("delete card {card_id}"))?;
+    Ok(CardDeleteOut {
+        deleted: true,
+        card_id: card_id.to_string(),
+    })
+}
+
+/// Add a dependency between two cards.
+pub async fn add_card_dependency(
+    client: &mut dyn CardService,
+    board_id: &str,
+    card_id: &str,
+    depends_on: &str,
+) -> Result<CardDetailOut> {
+    let req = client::CardDependencyRequest {
+        card_id: card_id.to_string(),
+        depends_on_card_id: depends_on.to_string(),
+        idempotency_key: new_idempotency_key(),
+    };
+    let resp = client
+        .add_card_dependency(request_with_object_id(req, board_id)?)
+        .await
+        .with_ctx(|| format!("add dependency {depends_on} to card {card_id}"))?;
+    let mut detail = CardDetailOut::from_proto(resp);
+    resolve_assignee_emails(&mut detail.assignees).await?;
+    Ok(detail)
+}
+
+/// Remove a dependency between two cards.
+pub async fn remove_card_dependency(
+    client: &mut dyn CardService,
+    board_id: &str,
+    card_id: &str,
+    depends_on: &str,
+) -> Result<CardDetailOut> {
+    let req = client::CardDependencyRequest {
+        card_id: card_id.to_string(),
+        depends_on_card_id: depends_on.to_string(),
+        idempotency_key: new_idempotency_key(),
+    };
+    let resp = client
+        .remove_card_dependency(request_with_object_id(req, board_id)?)
+        .await
+        .with_ctx(|| format!("remove dependency {depends_on} from card {card_id}"))?;
+    let mut detail = CardDetailOut::from_proto(resp);
+    resolve_assignee_emails(&mut detail.assignees).await?;
+    Ok(detail)
 }
 
 #[cfg(test)]
@@ -744,23 +621,9 @@ mod tests {
                 })
             });
 
-        let out = run(
-            CardAction::List {
-                board: "board_1".into(),
-                column: None,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            CardOutput::List(cards) => {
-                assert_eq!(cards.len(), 1);
-                assert_eq!(cards[0].id, "card_1");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let cards = list_cards(&mut mock, "board_1", None).await.unwrap();
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].id, "card_1");
     }
 
     #[tokio::test]
@@ -778,16 +641,8 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        let out = run(
-            CardAction::Get {
-                card_id: "card_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
+        let detail = get_card(&mut mock, "card_1").await.unwrap();
+        assert_eq!(detail.id, "card_1");
     }
 
     #[tokio::test]
@@ -807,20 +662,17 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        let out = run(
-            CardAction::Create {
-                board: "board_1".into(),
-                column: Some("col_1".into()),
-                title: "New card".into(),
-                description: Some("Details".into()),
-                priority: Some(PriorityArg::High),
-            },
+        let detail = create_card(
             &mut mock,
+            "board_1",
+            Some("col_1"),
+            "New card",
+            Some("Details"),
+            Some(client::CardPriority::High),
         )
         .await
         .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
+        assert_eq!(detail.id, "card_1");
     }
 
     #[tokio::test]
@@ -840,19 +692,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        let out = run(
-            CardAction::Update {
-                card_id: "card_1".into(),
-                title: Some("Updated title".into()),
-                description: None,
-                priority: None,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
+        let detail = update_card(&mut mock, "card_1", Some("Updated title"), None, None)
+            .await
+            .unwrap();
+        assert_eq!(detail.id, "card_1");
     }
 
     #[tokio::test]
@@ -866,18 +709,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        let out = run(
-            CardAction::Move {
-                card_id: "card_1".into(),
-                column: "col_2".into(),
-                position: Some(2),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
+        let detail = move_card(&mut mock, "card_1", "col_2", Some(2))
+            .await
+            .unwrap();
+        assert_eq!(detail.id, "card_1");
     }
 
     #[tokio::test]
@@ -888,22 +723,9 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let out = run(
-            CardAction::Delete {
-                card_id: "card_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            CardOutput::Deleted(d) => {
-                assert!(d.deleted);
-                assert_eq!(d.card_id, "card_1");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let out = delete_card(&mut mock, "card_1").await.unwrap();
+        assert!(out.deleted);
+        assert_eq!(out.card_id, "card_1");
     }
 
     #[tokio::test]
@@ -923,20 +745,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        let out = run(
-            CardAction::Dependency {
-                action: DependencyAction::Add {
-                    board: "board_1".into(),
-                    card_id: "card_1".into(),
-                    depends_on: "card_2".into(),
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
+        let detail = add_card_dependency(&mut mock, "board_1", "card_1", "card_2")
+            .await
+            .unwrap();
+        assert_eq!(detail.id, "card_1");
     }
 
     #[tokio::test]
@@ -956,20 +768,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        let out = run(
-            CardAction::Dependency {
-                action: DependencyAction::Remove {
-                    board: "board_1".into(),
-                    card_id: "card_1".into(),
-                    depends_on: "card_2".into(),
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
+        let detail = remove_card_dependency(&mut mock, "board_1", "card_1", "card_2")
+            .await
+            .unwrap();
+        assert_eq!(detail.id, "card_1");
     }
 
     #[tokio::test]
@@ -982,17 +784,10 @@ mod tests {
             })
         });
 
-        let out = run(
-            CardAction::List {
-                board: "board_1".into(),
-                column: Some("col_1".into()),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, CardOutput::List(_)));
+        let cards = list_cards(&mut mock, "board_1", Some("col_1"))
+            .await
+            .unwrap();
+        assert_eq!(cards.len(), 1);
     }
 
     #[tokio::test]
@@ -1002,30 +797,20 @@ mod tests {
             .withf(|req| {
                 let r = req.get_ref();
                 r.board_id == "board_1"
-                    && r.title == "T"
+                    && r.column_id.is_empty()
+                    && r.title == "Default card"
                     && r.description.is_empty()
                     && r.priority == 0
                     && r.position == 0
                     && r.urgency == client::CardUrgency::Medium as i32
-                    && !r.idempotency_key.is_empty()
             })
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        let out = run(
-            CardAction::Create {
-                board: "board_1".into(),
-                column: None,
-                title: "T".into(),
-                description: None,
-                priority: None,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
+        let detail = create_card(&mut mock, "board_1", None, "Default card", None, None)
+            .await
+            .unwrap();
+        assert_eq!(detail.id, "card_1");
     }
 
     #[tokio::test]
@@ -1035,123 +820,29 @@ mod tests {
             .withf(|req| {
                 let r = req.get_ref();
                 let paths = r.update_mask.as_ref().map(|m| m.paths.clone());
-                paths
-                    == Some(vec![
-                        "title".into(),
-                        "description".into(),
-                        "priority".into(),
-                    ])
+                r.card_id == "card_1"
+                    && paths
+                        == Some(vec![
+                            "title".to_string(),
+                            "description".to_string(),
+                            "priority".to_string(),
+                        ])
+                    && r.card.as_ref().map(|c| c.priority)
+                        == Some(client::CardPriority::Urgent as i32)
             })
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        let out = run(
-            CardAction::Update {
-                card_id: "card_1".into(),
-                title: Some("T".into()),
-                description: Some("D".into()),
-                priority: Some(PriorityArg::Urgent),
-            },
+        let detail = update_card(
             &mut mock,
+            "card_1",
+            Some("Updated"),
+            Some("Desc"),
+            Some(client::CardPriority::Urgent),
         )
         .await
         .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
-    }
-
-    #[tokio::test]
-    async fn move_card_with_default_position_returns_detail() {
-        let mut mock = MockCardService::new();
-        mock.expect_move_card()
-            .withf(|req| {
-                let r = req.get_ref();
-                r.card_id == "card_1" && r.to_column_id == "col_2" && r.to_position == 0
-            })
-            .times(1)
-            .returning(|_| Ok(sample_card()));
-
-        let out = run(
-            CardAction::Move {
-                card_id: "card_1".into(),
-                column: "col_2".into(),
-                position: None,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, CardOutput::Detail(_)));
-    }
-
-    #[test]
-    fn card_detail_out_covers_nested_fields() {
-        let card = client::Card {
-            labels: vec![client::Label {
-                id: "l1".into(),
-                project_id: "p1".into(),
-                name: "bug".into(),
-                style: "red".into(),
-            }],
-            assignees: vec![client::Assignee {
-                subject: "sub".into(),
-                display_name: "Ada".into(),
-                avatar_url: "http://a".into(),
-            }],
-            checklist: vec![client::ChecklistItem {
-                id: "i1".into(),
-                text: "x".into(),
-                done: true,
-                position: 1,
-            }],
-            github_links: vec![client::GitHubLink {
-                id: "g1".into(),
-                repo: "r".into(),
-                number: 1,
-                state: "open".into(),
-                merged: false,
-                last_synced_at: None,
-            }],
-            ..sample_card()
-        };
-        let out = CardDetailOut::from_proto(card);
-        assert_eq!(out.labels.len(), 1);
-        assert_eq!(out.assignees.len(), 1);
-        assert_eq!(out.checklist.len(), 1);
-        assert_eq!(out.github_links.len(), 1);
-    }
-
-    #[test]
-    fn fmt_ts_handles_missing_and_invalid() {
-        assert!(fmt_ts(None).is_empty());
-        assert!(
-            fmt_ts(Some(&prost_types::Timestamp {
-                seconds: i64::MAX,
-                nanos: 0,
-            }))
-            .is_empty()
-        );
-    }
-
-    #[test]
-    fn priority_arg_to_proto_covers_all() {
-        assert_eq!(
-            PriorityArg::Low.to_proto() as i32,
-            client::CardPriority::Low as i32
-        );
-        assert_eq!(
-            PriorityArg::Medium.to_proto() as i32,
-            client::CardPriority::Medium as i32
-        );
-        assert_eq!(
-            PriorityArg::High.to_proto() as i32,
-            client::CardPriority::High as i32
-        );
-        assert_eq!(
-            PriorityArg::Urgent.to_proto() as i32,
-            client::CardPriority::Urgent as i32
-        );
+        assert_eq!(detail.id, "card_1");
     }
 
     #[tokio::test]

@@ -1,4 +1,4 @@
-//! OAuth2 Device Authorization Grant for CLI authentication against Hydra.
+//! OAuth2 Device Authorization Grant against Hydra.
 
 use crate::config::AuthTokens;
 use crate::error::{Result, ResultExt, SunbeamError};
@@ -23,10 +23,10 @@ pub struct AuthStatus {
     pub refreshable: bool,
 }
 
-/// Hydra OAuth2 client ID for the Sunbeam CLI public client.
+/// Hydra OAuth2 client ID for the Sunbeam public client.
 ///
 /// Client registration:
-///   client_name: "Sunbeam CLI"
+///   client_name: "Sunbeam"
 ///   token_endpoint_auth_method: "none" (public client, no secret)
 ///   grant_types: authorization_code, refresh_token, urn:ietf:params:oauth:grant-type:device_code
 ///   response_types: ["code"]
@@ -75,8 +75,7 @@ async fn resolve_domain(explicit: Option<&str>) -> Result<String> {
     }
 
     Err(SunbeamError::config(
-        "Could not determine domain. Use --domain flag, or configure with:\n  \
-         sunbeam config set --host user@your-server.example.com",
+        "Could not determine domain. Configure a domain in the active context or pass one explicitly.",
     ))
 }
 
@@ -329,7 +328,7 @@ async fn poll_device_token(
 
         if start.elapsed() >= expires {
             return Err(SunbeamError::identity(
-                "Device login timed out. Run `sunbeam auth login` to try again.",
+                "Device login timed out; authenticate and try again.",
             ));
         }
     }
@@ -339,8 +338,8 @@ async fn poll_device_token(
 ///
 /// Obtains a device code, opens the verification URL in the default browser,
 /// then polls the token endpoint until the user authorizes the device. Tokens
-/// are cached so `sunbeam auth token` and `crate::auth::get_token()` work
-/// identically for upstream API calls.
+/// are cached so `crate::auth::cmd_auth_token()` and `crate::auth::get_token()`
+/// work identically for upstream API calls.
 #[tracing::instrument(skip(domain_override))]
 pub async fn cmd_auth_login(domain_override: Option<&str>) -> Result<()> {
     tracing::info!("Authenticating with Hydra via device code");
@@ -410,8 +409,8 @@ pub async fn cmd_auth_login(domain_override: Option<&str>) -> Result<()> {
 
 /// Resolve the OAuth2 client ID for device login.
 ///
-/// The CLI is a public Hydra client (no secret). The client_id is hardcoded
-/// to match the pre-registered Sunbeam CLI client.
+/// This is a public Hydra client (no secret). The client_id is hardcoded
+/// to match the pre-registered Sunbeam client.
 async fn resolve_client_id() -> String {
     DEFAULT_CLIENT_ID.to_string()
 }
@@ -632,23 +631,20 @@ pub async fn resolve_subjects_for_emails(
 /// Get a valid access token, refreshing if needed.
 ///
 /// Returns the access token string ready for use in Authorization headers.
-/// If no cached token exists or refresh fails, returns an error prompting
-/// the user to run `sunbeam auth login`.
+/// If no cached token exists or refresh fails, returns an identity error.
 #[tracing::instrument]
 pub async fn get_token() -> Result<String> {
     let domain = crate::config::domain();
     if domain.is_empty() {
         return Err(SunbeamError::config(
-            "No domain configured; set one with `sunbeam config set --domain ...`",
+            "No domain configured in the active context",
         ));
     }
 
     let cached = match crate::config::get_auth_tokens(domain) {
         Some(tokens) => tokens,
         None => {
-            return Err(SunbeamError::identity(
-                "Not logged in. Run `sunbeam auth login` to authenticate.",
-            ));
+            return Err(SunbeamError::identity("Not logged in"));
         }
     };
 
@@ -668,9 +664,7 @@ pub async fn get_token() -> Result<String> {
         }
     }
 
-    Err(SunbeamError::identity(
-        "Session expired. Run `sunbeam auth login` to re-authenticate.",
-    ))
+    Err(SunbeamError::identity("Session expired"))
 }
 
 /// Return the current access token.
@@ -689,7 +683,7 @@ pub async fn cmd_auth_logout() -> Result<()> {
     let domain = crate::config::domain();
     if domain.is_empty() {
         return Err(SunbeamError::config(
-            "No domain configured; set one with `sunbeam config set --domain ...`",
+            "No domain configured in the active context",
         ));
     }
 
@@ -710,7 +704,7 @@ pub async fn cmd_auth_status() -> Result<AuthStatus> {
     let domain = crate::config::domain();
     if domain.is_empty() {
         return Err(SunbeamError::config(
-            "No domain configured; set one with `sunbeam config set --domain ...`",
+            "No domain configured in the active context",
         ));
     }
 

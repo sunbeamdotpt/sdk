@@ -1,9 +1,8 @@
-//! Kanban project commands.
+//! Kanban project operations.
 
 use crate::error::{Result, ResultExt, SunbeamError};
-use crate::kanban::client::{self};
 use crate::kanban::client::{
-    AddMemberRequest, CreateProjectRequest, DeleteProjectRequest, GetProjectRequest,
+    self, AddMemberRequest, CreateProjectRequest, DeleteProjectRequest, GetProjectRequest,
     ListMembersRequest, ListProjectsRequest, ProjectServiceClient, RemoveMemberRequest,
     UpdateProjectRequest,
 };
@@ -11,94 +10,8 @@ use crate::kanban::fmt_proto_time;
 use crate::kanban::resolve;
 use crate::logger::Logger;
 use async_trait::async_trait;
-use clap::Subcommand;
 use prost_types::FieldMask;
 use serde::Serialize;
-
-/// Project actions.
-#[derive(Debug, Subcommand)]
-pub enum ProjectAction {
-    /// List projects.
-    List,
-    /// Get a project.
-    Get {
-        /// Project ID or name.
-        project_id: String,
-    },
-    /// Create a project.
-    Create {
-        /// Project name.
-        #[arg(short, long)]
-        name: String,
-        /// Short uppercase prefix.
-        #[arg(short, long)]
-        prefix: String,
-        /// Icon identifier.
-        #[arg(short, long)]
-        icon: Option<String>,
-        /// Color token.
-        #[arg(short, long)]
-        color: Option<String>,
-        /// Description.
-        #[arg(short, long)]
-        description: Option<String>,
-    },
-    /// Update a project.
-    Update {
-        /// Project ID or name.
-        project_id: String,
-        /// New name.
-        #[arg(short, long)]
-        name: Option<String>,
-        /// New icon.
-        #[arg(short, long)]
-        icon: Option<String>,
-        /// New color.
-        #[arg(short, long)]
-        color: Option<String>,
-        /// New description.
-        #[arg(short, long)]
-        description: Option<String>,
-    },
-    /// Delete a project.
-    Delete {
-        /// Project ID or name.
-        project_id: String,
-    },
-    /// Member management.
-    Member {
-        /// Member subcommand to run.
-        #[command(subcommand)]
-        action: MemberAction,
-    },
-}
-
-/// Project member actions.
-#[derive(Debug, Subcommand)]
-pub enum MemberAction {
-    /// List members.
-    List {
-        /// Project ID or name.
-        project_id: String,
-    },
-    /// Add a member.
-    Add {
-        /// Project ID or name.
-        project_id: String,
-        /// Member email address.
-        subject: String,
-        /// Relation.
-        #[arg(short, long, default_value = "view")]
-        relation: String,
-    },
-    /// Remove a member.
-    Remove {
-        /// Project ID or name.
-        project_id: String,
-        /// Member email address.
-        subject: String,
-    },
-}
 
 /// Serializable project for output.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -208,24 +121,6 @@ pub struct MemberRemoveOut {
     pub project_id: String,
     /// Member subject.
     pub subject: String,
-}
-
-/// Result of running a project command.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum ProjectOutput {
-    /// List of projects.
-    List(Vec<ProjectOut>),
-    /// Single project.
-    Project(ProjectOut),
-    /// Deletion confirmation.
-    Deleted(ProjectDeleteOut),
-    /// List of members.
-    Members(Vec<MemberOut>),
-    /// Member addition confirmation.
-    MemberAdded(MemberAddOut),
-    /// Member removal confirmation.
-    MemberRemoved(MemberRemoveOut),
 }
 
 /// Trait abstracting the Kanban project service for testability.
@@ -349,10 +244,6 @@ pub async fn build_client(
 }
 
 /// Resolve a member identifier to an SSO subject.
-///
-/// Only email addresses are accepted; they are resolved through the Kratos
-/// admin API. Configure the endpoint with the `kratos-admin-url` field in the
-/// active context.
 async fn resolve_member_subject(subject: &str) -> Result<String> {
     if !subject.contains('@') {
         return Err(SunbeamError::identity(
@@ -367,178 +258,193 @@ async fn resolve_member_subject(subject: &str) -> Result<String> {
     crate::auth::resolve_subject_for_email(subject).await
 }
 
-/// Run a project command and return the result data.
-pub async fn run(cmd: ProjectAction, client: &mut dyn ProjectService) -> Result<ProjectOutput> {
-    match cmd {
-        ProjectAction::List => {
-            let resp = client
-                .list_projects(tonic::Request::new(ListProjectsRequest {}))
-                .await
-                .with_ctx(|| "list projects failed".to_string())?;
-            let projects: Vec<ProjectOut> = resp.projects.into_iter().map(Into::into).collect();
-            Ok(ProjectOutput::List(projects))
-        }
-        ProjectAction::Get { project_id } => {
-            let project_id = resolve::resolve_project_id(client, &project_id).await?;
-            let req = crate::kanban::client::request_with_object_id(
-                GetProjectRequest {
-                    project_id: project_id.clone(),
-                },
-                &project_id,
-            )?;
-            let resp = client
-                .get_project(req)
-                .await
-                .with_ctx(|| "get project failed".to_string())?;
-            Ok(ProjectOutput::Project(ProjectOut::from(resp)))
-        }
-        ProjectAction::Create {
-            name,
-            prefix,
-            icon,
-            color,
-            description,
-        } => {
-            let req = CreateProjectRequest {
-                name,
-                prefix,
-                icon: icon.unwrap_or_default(),
-                color: color.unwrap_or_default(),
-                description: description.unwrap_or_default(),
-                idempotency_key: crate::kanban::new_idempotency_key(),
-            };
-            let resp = client
-                .create_project(tonic::Request::new(req))
-                .await
-                .with_ctx(|| "create project failed".to_string())?;
-            Ok(ProjectOutput::Project(ProjectOut::from(resp)))
-        }
-        ProjectAction::Update {
-            project_id,
-            name,
-            icon,
-            color,
-            description,
-        } => {
-            let project_id = resolve::resolve_project_id(client, &project_id).await?;
-            let mut paths = Vec::new();
-            if name.is_some() {
-                paths.push("name".to_string());
-            }
-            if icon.is_some() {
-                paths.push("icon".to_string());
-            }
-            if color.is_some() {
-                paths.push("color".to_string());
-            }
-            if description.is_some() {
-                paths.push("description".to_string());
-            }
-            let project_id = project_id.clone();
-            let req = UpdateProjectRequest {
-                project_id: project_id.clone(),
-                project: Some(client::Project {
-                    id: project_id.clone(),
-                    name: name.unwrap_or_default(),
-                    prefix: String::new(),
-                    icon: icon.unwrap_or_default(),
-                    color: color.unwrap_or_default(),
-                    description: description.unwrap_or_default(),
-                    ..Default::default()
-                }),
-                update_mask: Some(FieldMask { paths }),
-            };
-            let req = crate::kanban::client::request_with_object_id(req, &project_id)?;
-            let resp = client
-                .update_project(req)
-                .await
-                .with_ctx(|| "update project failed".to_string())?;
-            Ok(ProjectOutput::Project(ProjectOut::from(resp)))
-        }
-        ProjectAction::Delete { project_id } => {
-            let project_id = resolve::resolve_project_id(client, &project_id).await?;
-            let req = crate::kanban::client::request_with_object_id(
-                DeleteProjectRequest {
-                    project_id: project_id.clone(),
-                },
-                &project_id,
-            )?;
-            client
-                .delete_project(req)
-                .await
-                .with_ctx(|| "delete project failed".to_string())?;
-            Ok(ProjectOutput::Deleted(ProjectDeleteOut {
-                deleted: true,
-                project_id,
-            }))
-        }
-        ProjectAction::Member { action } => match action {
-            MemberAction::List { project_id } => {
-                let project_id = resolve::resolve_project_id(client, &project_id).await?;
-                let req = crate::kanban::client::request_with_object_id(
-                    ListMembersRequest {
-                        project_id: project_id.clone(),
-                    },
-                    &project_id,
-                )?;
-                let resp = client
-                    .list_members(req)
-                    .await
-                    .with_ctx(|| "list members failed".to_string())?;
-                let members: Vec<MemberOut> = resp.members.into_iter().map(Into::into).collect();
-                Ok(ProjectOutput::Members(members))
-            }
-            MemberAction::Add {
-                project_id,
-                subject,
-                relation,
-            } => {
-                let project_id = resolve::resolve_project_id(client, &project_id).await?;
-                let subject = resolve_member_subject(&subject).await?;
-                let req = crate::kanban::client::request_with_object_id(
-                    AddMemberRequest {
-                        project_id: project_id.clone(),
-                        subject: subject.clone(),
-                        relation: relation.clone(),
-                    },
-                    &project_id,
-                )?;
-                client
-                    .add_member(req)
-                    .await
-                    .with_ctx(|| "add member failed".to_string())?;
-                Ok(ProjectOutput::MemberAdded(MemberAddOut {
-                    added: true,
-                    project_id,
-                    subject,
-                    relation,
-                }))
-            }
-            MemberAction::Remove {
-                project_id,
-                subject,
-            } => {
-                let project_id = resolve::resolve_project_id(client, &project_id).await?;
-                let subject = resolve_member_subject(&subject).await?;
-                let req = crate::kanban::client::request_with_object_id(
-                    RemoveMemberRequest {
-                        project_id: project_id.clone(),
-                        subject: subject.clone(),
-                    },
-                    &project_id,
-                )?;
-                client
-                    .remove_member(req)
-                    .await
-                    .with_ctx(|| "remove member failed".to_string())?;
-                Ok(ProjectOutput::MemberRemoved(MemberRemoveOut {
-                    removed: true,
-                    project_id,
-                    subject,
-                }))
-            }
+/// List projects visible to the caller.
+pub async fn list_projects(client: &mut dyn ProjectService) -> Result<Vec<ProjectOut>> {
+    let resp = client
+        .list_projects(tonic::Request::new(ListProjectsRequest {}))
+        .await
+        .with_ctx(|| "list projects failed".to_string())?;
+    Ok(resp.projects.into_iter().map(Into::into).collect())
+}
+
+/// Get a single project.
+pub async fn get_project(client: &mut dyn ProjectService, project_id: &str) -> Result<ProjectOut> {
+    let project_id = resolve::resolve_project_id(client, project_id).await?;
+    let req = crate::kanban::client::request_with_object_id(
+        GetProjectRequest {
+            project_id: project_id.clone(),
         },
+        &project_id,
+    )?;
+    let resp = client
+        .get_project(req)
+        .await
+        .with_ctx(|| "get project failed".to_string())?;
+    Ok(ProjectOut::from(resp))
+}
+
+/// Create a new project.
+pub async fn create_project(
+    client: &mut dyn ProjectService,
+    name: &str,
+    prefix: &str,
+    icon: Option<&str>,
+    color: Option<&str>,
+    description: Option<&str>,
+) -> Result<ProjectOut> {
+    let req = CreateProjectRequest {
+        name: name.to_string(),
+        prefix: prefix.to_string(),
+        icon: icon.unwrap_or("").to_string(),
+        color: color.unwrap_or("").to_string(),
+        description: description.unwrap_or("").to_string(),
+        idempotency_key: crate::kanban::new_idempotency_key(),
+    };
+    let resp = client
+        .create_project(tonic::Request::new(req))
+        .await
+        .with_ctx(|| "create project failed".to_string())?;
+    Ok(ProjectOut::from(resp))
+}
+
+/// Update a project.
+pub async fn update_project(
+    client: &mut dyn ProjectService,
+    project_id: &str,
+    name: Option<&str>,
+    icon: Option<&str>,
+    color: Option<&str>,
+    description: Option<&str>,
+) -> Result<ProjectOut> {
+    let project_id = resolve::resolve_project_id(client, project_id).await?;
+    let mut paths = Vec::new();
+    if name.is_some() {
+        paths.push("name".to_string());
     }
+    if icon.is_some() {
+        paths.push("icon".to_string());
+    }
+    if color.is_some() {
+        paths.push("color".to_string());
+    }
+    if description.is_some() {
+        paths.push("description".to_string());
+    }
+    let req = UpdateProjectRequest {
+        project_id: project_id.clone(),
+        project: Some(client::Project {
+            id: project_id.clone(),
+            name: name.unwrap_or("").to_string(),
+            prefix: String::new(),
+            icon: icon.unwrap_or("").to_string(),
+            color: color.unwrap_or("").to_string(),
+            description: description.unwrap_or("").to_string(),
+            ..Default::default()
+        }),
+        update_mask: Some(FieldMask { paths }),
+    };
+    let req = crate::kanban::client::request_with_object_id(req, &project_id)?;
+    let resp = client
+        .update_project(req)
+        .await
+        .with_ctx(|| "update project failed".to_string())?;
+    Ok(ProjectOut::from(resp))
+}
+
+/// Delete a project.
+pub async fn delete_project(
+    client: &mut dyn ProjectService,
+    project_id: &str,
+) -> Result<ProjectDeleteOut> {
+    let project_id = resolve::resolve_project_id(client, project_id).await?;
+    let req = crate::kanban::client::request_with_object_id(
+        DeleteProjectRequest {
+            project_id: project_id.clone(),
+        },
+        &project_id,
+    )?;
+    client
+        .delete_project(req)
+        .await
+        .with_ctx(|| "delete project failed".to_string())?;
+    Ok(ProjectDeleteOut {
+        deleted: true,
+        project_id,
+    })
+}
+
+/// List project members.
+pub async fn list_members(
+    client: &mut dyn ProjectService,
+    project_id: &str,
+) -> Result<Vec<MemberOut>> {
+    let project_id = resolve::resolve_project_id(client, project_id).await?;
+    let req = crate::kanban::client::request_with_object_id(
+        ListMembersRequest {
+            project_id: project_id.clone(),
+        },
+        &project_id,
+    )?;
+    let resp = client
+        .list_members(req)
+        .await
+        .with_ctx(|| "list members failed".to_string())?;
+    Ok(resp.members.into_iter().map(Into::into).collect())
+}
+
+/// Add a project member.
+pub async fn add_member(
+    client: &mut dyn ProjectService,
+    project_id: &str,
+    subject: &str,
+    relation: &str,
+) -> Result<MemberAddOut> {
+    let project_id = resolve::resolve_project_id(client, project_id).await?;
+    let subject = resolve_member_subject(subject).await?;
+    let req = crate::kanban::client::request_with_object_id(
+        AddMemberRequest {
+            project_id: project_id.clone(),
+            subject: subject.clone(),
+            relation: relation.to_string(),
+        },
+        &project_id,
+    )?;
+    client
+        .add_member(req)
+        .await
+        .with_ctx(|| "add member failed".to_string())?;
+    Ok(MemberAddOut {
+        added: true,
+        project_id,
+        subject,
+        relation: relation.to_string(),
+    })
+}
+
+/// Remove a project member.
+pub async fn remove_member(
+    client: &mut dyn ProjectService,
+    project_id: &str,
+    subject: &str,
+) -> Result<MemberRemoveOut> {
+    let project_id = resolve::resolve_project_id(client, project_id).await?;
+    let subject = resolve_member_subject(subject).await?;
+    let req = crate::kanban::client::request_with_object_id(
+        RemoveMemberRequest {
+            project_id: project_id.clone(),
+            subject: subject.clone(),
+        },
+        &project_id,
+    )?;
+    client
+        .remove_member(req)
+        .await
+        .with_ctx(|| "remove member failed".to_string())?;
+    Ok(MemberRemoveOut {
+        removed: true,
+        project_id,
+        subject,
+    })
 }
 
 #[cfg(test)]
@@ -591,11 +497,8 @@ mod tests {
                 })
             });
 
-        let out = run(ProjectAction::List, &mut mock).await.unwrap();
-        match out {
-            ProjectOutput::List(projects) => assert_eq!(projects.len(), 1),
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let projects = list_projects(&mut mock).await.unwrap();
+        assert_eq!(projects.len(), 1);
     }
 
     #[tokio::test]
@@ -613,19 +516,8 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        let out = run(
-            ProjectAction::Get {
-                project_id: "proj_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            ProjectOutput::Project(p) => assert_eq!(p.id, "proj_1"),
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let project = get_project(&mut mock, "proj_1").await.unwrap();
+        assert_eq!(project.id, "proj_1");
     }
 
     #[tokio::test]
@@ -644,20 +536,17 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        let out = run(
-            ProjectAction::Create {
-                name: "Sunbeam".into(),
-                prefix: "BEAM".into(),
-                icon: Some("star".into()),
-                color: Some("#ff0000".into()),
-                description: Some("All the things".into()),
-            },
+        let project = create_project(
             &mut mock,
+            "Sunbeam",
+            "BEAM",
+            Some("star"),
+            Some("#ff0000"),
+            Some("All the things"),
         )
         .await
         .unwrap();
-
-        assert!(matches!(out, ProjectOutput::Project(_)));
+        assert_eq!(project.id, "proj_1");
     }
 
     #[tokio::test]
@@ -675,20 +564,17 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        let out = run(
-            ProjectAction::Update {
-                project_id: "proj_1".into(),
-                name: Some("Renamed".into()),
-                icon: None,
-                color: None,
-                description: Some("New desc".into()),
-            },
+        let project = update_project(
             &mut mock,
+            "proj_1",
+            Some("Renamed"),
+            None,
+            None,
+            Some("New desc"),
         )
         .await
         .unwrap();
-
-        assert!(matches!(out, ProjectOutput::Project(_)));
+        assert_eq!(project.id, "proj_1");
     }
 
     #[tokio::test]
@@ -699,22 +585,9 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let out = run(
-            ProjectAction::Delete {
-                project_id: "proj_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            ProjectOutput::Deleted(d) => {
-                assert!(d.deleted);
-                assert_eq!(d.project_id, "proj_1");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let out = delete_project(&mut mock, "proj_1").await.unwrap();
+        assert!(out.deleted);
+        assert_eq!(out.project_id, "proj_1");
     }
 
     #[tokio::test]
@@ -729,21 +602,8 @@ mod tests {
                 })
             });
 
-        let out = run(
-            ProjectAction::Member {
-                action: MemberAction::List {
-                    project_id: "proj_1".into(),
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            ProjectOutput::Members(m) => assert_eq!(m.len(), 1),
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let members = list_members(&mut mock, "proj_1").await.unwrap();
+        assert_eq!(members.len(), 1);
     }
 
     #[tokio::test]
@@ -757,26 +617,11 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let out = run(
-            ProjectAction::Member {
-                action: MemberAction::Add {
-                    project_id: "proj_1".into(),
-                    subject: "abc@test".into(),
-                    relation: "edit".into(),
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            ProjectOutput::MemberAdded(a) => {
-                assert!(a.added);
-                assert_eq!(a.subject, "user:abc");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let out = add_member(&mut mock, "proj_1", "abc@test", "edit")
+            .await
+            .unwrap();
+        assert!(out.added);
+        assert_eq!(out.subject, "user:abc");
     }
 
     #[tokio::test]
@@ -790,25 +635,11 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let out = run(
-            ProjectAction::Member {
-                action: MemberAction::Remove {
-                    project_id: "proj_1".into(),
-                    subject: "abc@test".into(),
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            ProjectOutput::MemberRemoved(r) => {
-                assert!(r.removed);
-                assert_eq!(r.subject, "user:abc");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let out = remove_member(&mut mock, "proj_1", "abc@test")
+            .await
+            .unwrap();
+        assert!(out.removed);
+        assert_eq!(out.subject, "user:abc");
     }
 
     #[tokio::test]
@@ -827,20 +658,10 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        let out = run(
-            ProjectAction::Create {
-                name: "N".into(),
-                prefix: "PR".into(),
-                icon: Some("i".into()),
-                color: Some("c".into()),
-                description: Some("d".into()),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, ProjectOutput::Project(_)));
+        let project = create_project(&mut mock, "N", "PR", Some("i"), Some("c"), Some("d"))
+            .await
+            .unwrap();
+        assert_eq!(project.id, "proj_1");
     }
 
     #[tokio::test]
@@ -861,20 +682,17 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        let out = run(
-            ProjectAction::Update {
-                project_id: "proj_1".into(),
-                name: Some("N".into()),
-                icon: Some("I".into()),
-                color: Some("C".into()),
-                description: Some("D".into()),
-            },
+        let project = update_project(
             &mut mock,
+            "proj_1",
+            Some("N"),
+            Some("I"),
+            Some("C"),
+            Some("D"),
         )
         .await
         .unwrap();
-
-        assert!(matches!(out, ProjectOutput::Project(_)));
+        assert_eq!(project.id, "proj_1");
     }
 
     #[tokio::test]
@@ -900,16 +718,8 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        let out = run(
-            ProjectAction::Get {
-                project_id: "Sunbeam".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, ProjectOutput::Project(_)));
+        let project = get_project(&mut mock, "Sunbeam").await.unwrap();
+        assert_eq!(project.id, "proj_1");
     }
 
     #[tokio::test]

@@ -1,4 +1,4 @@
-//! Unified tracing-based logging subsystem for the Sunbeam CLI.
+//! Unified tracing-based logging subsystem.
 //!
 //! Supports three output modes:
 //! - `line`   — awk-friendly, parseable single-line output (default).
@@ -31,12 +31,12 @@ pub enum LogMode {
 
 /// Default EnvFilter directive string.
 ///
-/// - `sunbeam=info` — our code at INFO and above.
+/// - `sdk=info` — our code at INFO and above.
 /// - `tonic=off,hyper=off,h2=off,tower=off,reqwest=off` — silence noisy HTTP libs.
 /// - `kube_client::client::tls=off` — silence TLS noise.
 /// - `kube_client::client::builder=off` — silence tower_http TraceLayer retry spam.
 /// - `warn` at the end — everything else at WARN and above.
-const DEFAULT_FILTER: &str = "sunbeam=info,tonic=off,hyper=off,h2=off,tower=off,reqwest=off,kube_client::client::tls=off,kube_client::client::builder=off,warn";
+const DEFAULT_FILTER: &str = "sdk=info,sunbeam=info,tonic=off,hyper=off,h2=off,tower=off,reqwest=off,kube_client::client::tls=off,kube_client::client::builder=off,warn";
 
 /// Initialize the global tracing subscriber for the given mode.
 ///

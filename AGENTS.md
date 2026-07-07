@@ -30,7 +30,7 @@ user to install it.
 
 - **Language:** Rust 2024 edition
 - **Async runtime:** tokio (full features)
-- **CLI derives:** clap v4 with derive macros (used internally for action/args)
+- **CLI parser:** clap v4 with derive macros (dependency for consuming binaries)
 - **Kubernetes:** kube-rs (client + runtime + websockets), k8s-openapi
 - **Workflow engine:** wfe, wfe-core, wfe-sqlite, wfe-yaml, wfe-server-protos
 - **TLS/HTTP:** rustls (aws-lc-rs crypto provider), reqwest, tokio-rustls, h2,
@@ -104,8 +104,8 @@ cargo doc --no-deps
   `TestWriter`.
 - `error.rs` tests cover exit codes, display formatting, context extensions, and
   the `bail!` macro.
-- `kanban/` commands are tested behind `mockall::automock` service traits; the
-  kanban module targets >90% line coverage via `cargo llvm-cov`.
+- `kanban/` service functions are tested behind `mockall::automock` service
+  traits; the kanban module targets >90% line coverage via `cargo llvm-cov`.
 
 ## Architecture
 

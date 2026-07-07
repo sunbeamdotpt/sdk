@@ -1,10 +1,9 @@
-//! `sunbeam connect` / `sunbeam disconnect` / `sunbeam vpn ...`
+//! VPN daemon control.
 //!
-//! `sunbeam connect` re-execs the current binary with a hidden
-//! `__vpn-daemon` subcommand and detaches it (stdio → /dev/null + a log
-//! file). The detached child runs the actual `sunbeam-net` daemon and
-//! listens on the IPC control socket. The user-facing process polls the
-//! socket until the daemon reaches Running, prints status, and exits.
+//! `cmd_connect` spawns a backgrounded `sunbeam-net` daemon and returns once
+//! it reaches Running. With `foreground`, it runs the daemon in-process and
+//! blocks until SIGINT or SIGTERM. The daemon writes an IPC control socket
+//! into `~/.sunbeam/vpn/daemon.sock`.
 //!
 //! This shape avoids forking from inside the tokio runtime.
 
@@ -54,11 +53,7 @@ pub struct VpnRunningStatus {
     pub recent_connections_error: Option<String>,
 }
 
-/// Run `sunbeam connect`.
-///
-/// Default mode spawns a backgrounded daemon and returns once it reaches
-/// Running. With `--foreground`, runs the daemon in-process and blocks
-/// until SIGINT or SIGTERM.
+/// Start the VPN daemon.
 #[tracing::instrument]
 pub async fn cmd_connect(foreground: bool) -> Result<()> {
     let ctx = active_context();
@@ -92,9 +87,7 @@ async fn spawn_background_daemon(state_dir: &std::path::Path) -> Result<()> {
     let probe = sunbeam_net::IpcClient::new(&socket);
     if probe.socket_exists() {
         if let Ok(status) = probe.status().await {
-            tracing::info!(
-                "VPN daemon already running ({status}). Use `sunbeam disconnect` first."
-            );
+            tracing::info!("VPN daemon already running ({status}); disconnect before reconnecting");
             return Ok(());
         }
         // Stale socket — clean it up so the new daemon can rebind.
@@ -286,7 +279,7 @@ async fn run_daemon_foreground() -> Result<()> {
     Ok(())
 }
 
-/// Run `sunbeam disconnect` — signal a running daemon via its IPC socket.
+/// Signal a running VPN daemon to disconnect via its IPC socket.
 #[tracing::instrument]
 pub async fn cmd_disconnect() -> Result<()> {
     let socket = vpn_state_dir()?.join("daemon.sock");
@@ -305,7 +298,7 @@ pub async fn cmd_disconnect() -> Result<()> {
     Ok(())
 }
 
-/// Run `sunbeam vpn status` — query a running daemon's status via IPC.
+/// Query a running VPN daemon's status via IPC.
 #[tracing::instrument]
 pub async fn cmd_vpn_status() -> Result<VpnStatus> {
     let socket = vpn_state_dir()?.join("daemon.sock");
@@ -351,7 +344,7 @@ pub async fn cmd_vpn_status() -> Result<VpnStatus> {
     }
 }
 
-/// Run `sunbeam vpn create-key` — call Headscale's REST API to mint a
+/// Call Headscale's REST API to mint a
 /// new pre-auth key for onboarding a new client.
 ///
 /// Reads `vpn-url` and `vpn-api-key` from the active context. The user

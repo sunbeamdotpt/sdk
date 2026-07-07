@@ -1,28 +1,12 @@
-//! Kanban realtime subscription commands.
+//! Kanban realtime subscription operations.
 
 use crate::error::{Result, ResultExt};
 use crate::kanban::client::{self, AuthChannel, BoardServiceClient, ProjectServiceClient};
 use crate::kanban::require_token;
 use crate::logger::Logger;
 use async_trait::async_trait;
-use clap::Subcommand;
 use futures::stream::{Stream, TryStreamExt};
 use std::pin::Pin;
-
-/// Subscription actions.
-#[derive(Debug, Subcommand)]
-pub enum SubscribeAction {
-    /// Subscribe to board events.
-    Board {
-        /// Board ID or name.
-        board_id: String,
-    },
-    /// Subscribe to project events.
-    Project {
-        /// Project ID or name.
-        project_id: String,
-    },
-}
 
 /// Stream of realtime board/project events.
 pub type EventStream = Pin<Box<dyn Stream<Item = Result<client::BoardEventEnvelope>> + Send>>;
@@ -101,43 +85,59 @@ pub async fn build_client(
     ))
 }
 
-/// Run a subscription command using the provided service client.
-pub async fn run_with_client(
-    cmd: SubscribeAction,
+/// Subscribe to board-level events.
+pub async fn subscribe_board(
     client: &mut dyn SubscriptionService,
+    board_id: &str,
 ) -> Result<EventStream> {
-    match cmd {
-        SubscribeAction::Board { board_id } => {
-            let req = tonic::Request::new(client::SubscribeBoardRequest {
-                board_id,
-                since_seq: 0,
-            });
-            client
-                .subscribe_board(req)
-                .await
-                .with_ctx(|| "kanban subscribe board failed".to_string())
-        }
-        SubscribeAction::Project { project_id } => {
-            let req = client::request_with_object_id(
-                client::SubscribeProjectRequest {
-                    project_id: project_id.clone(),
-                    since_seq: 0,
-                },
-                &project_id,
-            )?;
-            client
-                .subscribe_project(req)
-                .await
-                .with_ctx(|| "kanban subscribe project failed".to_string())
-        }
-    }
+    let req = tonic::Request::new(client::SubscribeBoardRequest {
+        board_id: board_id.to_string(),
+        since_seq: 0,
+    });
+    client
+        .subscribe_board(req)
+        .await
+        .with_ctx(|| "kanban subscribe board failed".to_string())
 }
 
-/// Run a subscription command.
-pub async fn run(logger: &Logger, cmd: SubscribeAction, server: &str) -> Result<EventStream> {
+/// Subscribe to project-level events.
+pub async fn subscribe_project(
+    client: &mut dyn SubscriptionService,
+    project_id: &str,
+) -> Result<EventStream> {
+    let req = client::request_with_object_id(
+        client::SubscribeProjectRequest {
+            project_id: project_id.to_string(),
+            since_seq: 0,
+        },
+        project_id,
+    )?;
+    client
+        .subscribe_project(req)
+        .await
+        .with_ctx(|| "kanban subscribe project failed".to_string())
+}
+
+/// Subscribe to board-level events, building the client from the server URL.
+pub async fn subscribe_board_with_client(
+    logger: &Logger,
+    server: &str,
+    board_id: &str,
+) -> Result<EventStream> {
     let token = require_token().await?;
     let mut client = build_client(logger, server, &token).await?;
-    run_with_client(cmd, &mut client).await
+    subscribe_board(&mut client, board_id).await
+}
+
+/// Subscribe to project-level events, building the client from the server URL.
+pub async fn subscribe_project_with_client(
+    logger: &Logger,
+    server: &str,
+    project_id: &str,
+) -> Result<EventStream> {
+    let token = require_token().await?;
+    let mut client = build_client(logger, server, &token).await?;
+    subscribe_project(&mut client, project_id).await
 }
 
 #[cfg(test)]
@@ -175,14 +175,7 @@ mod tests {
                 Ok(futures::stream::iter(vec![Ok(heartbeat_envelope("board_123"))]).boxed())
             });
 
-        let stream = run_with_client(
-            SubscribeAction::Board {
-                board_id: "board_123".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        let stream = subscribe_board(&mut mock, "board_123").await.unwrap();
 
         let events: Vec<_> = stream.collect().await;
         assert_eq!(events.len(), 1);
@@ -206,14 +199,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(futures::stream::iter(vec![Ok(heartbeat_envelope(""))]).boxed()));
 
-        let stream = run_with_client(
-            SubscribeAction::Project {
-                project_id: "proj_123".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        let stream = subscribe_project(&mut mock, "proj_123").await.unwrap();
 
         let events: Vec<_> = stream.collect().await;
         assert_eq!(events.len(), 1);
@@ -232,14 +218,7 @@ mod tests {
             )
         });
 
-        let stream = run_with_client(
-            SubscribeAction::Board {
-                board_id: "board_123".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        let stream = subscribe_board(&mut mock, "board_123").await.unwrap();
 
         let events: Vec<_> = stream.collect().await;
         assert_eq!(events.len(), 1);
@@ -258,28 +237,6 @@ mod tests {
         let logger = crate::logger::Logger::new(crate::logger::NoopSink);
         let err = build_client(&logger, ":::bad", "token").await.unwrap_err();
         assert!(err.to_string().contains("invalid kanban server URL"));
-    }
-
-    #[tokio::test]
-    async fn run_rejects_invalid_url() {
-        let logger = crate::logger::Logger::new(crate::logger::NoopSink);
-        let err = match run(
-            &logger,
-            SubscribeAction::Board {
-                board_id: "b".into(),
-            },
-            ":::not-a-url",
-        )
-        .await
-        {
-            Ok(_) => panic!("expected error for invalid URL"),
-            Err(e) => e,
-        };
-        assert!(
-            err.to_string().contains("login")
-                || err.to_string().contains("invalid kanban server URL"),
-            "unexpected error: {err}"
-        );
     }
 
     #[tokio::test]

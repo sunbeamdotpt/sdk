@@ -1,9 +1,9 @@
-//! Unified error tree for the sunbeam CLI.
+//! Unified error tree for the Sunbeam SDK.
 //!
-//! Every module returns `Result<T, SunbeamError>`. Errors bubble up to `main`,
-//! which maps them to exit codes and log output.
+//! Every module returns `Result<T, SunbeamError>`. Callers map errors to exit
+//! codes and log output.
 
-/// Exit codes for the sunbeam CLI.
+/// Exit codes for SDK consumers.
 #[allow(dead_code)]
 pub mod exit {
     /// Success.
@@ -28,7 +28,7 @@ pub mod exit {
     pub const EXTERNAL_TOOL: i32 = 9;
 }
 
-/// Top-level error type for the sunbeam CLI.
+/// Top-level error type for the Sunbeam SDK.
 ///
 /// Each variant maps to a logical error category with its own exit code.
 /// Leaf errors (io, json, yaml, kube, reqwest, etc.) are converted via `From` impls.

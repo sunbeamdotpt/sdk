@@ -1,157 +1,17 @@
-//! Kanban board commands.
+//! Kanban board operations.
 
 use crate::error::{Result, ResultExt};
-use crate::kanban::client::{self, BoardServiceClient, BoardVisibility};
 use crate::kanban::client::{
-    AddColumnRequest, CreateBoardRequest, DeleteBoardRequest, GetBoardRequest, ListBoardsRequest,
-    MoveColumnRequest, RemoveColumnRequest, UpdateBoardRequest, UpdateColumnRequest,
+    self, AddColumnRequest, BoardServiceClient, BoardVisibility, CreateBoardRequest,
+    DeleteBoardRequest, GetBoardRequest, ListBoardsRequest, MoveColumnRequest, RemoveColumnRequest,
+    UpdateBoardRequest, UpdateColumnRequest,
 };
 use crate::kanban::fmt_proto_time;
 use crate::kanban::resolve;
 use crate::logger::Logger;
 use async_trait::async_trait;
-use clap::Subcommand;
 use prost_types::FieldMask;
 use serde::Serialize;
-
-/// Board actions.
-#[derive(Debug, Subcommand)]
-pub enum BoardAction {
-    /// List boards.
-    List {
-        /// Project ID.
-        #[arg(short, long)]
-        project: String,
-    },
-    /// Get a board.
-    Get {
-        /// Board ID or name.
-        board_id: String,
-    },
-    /// Create a board.
-    Create {
-        /// Project ID.
-        #[arg(short, long)]
-        project: String,
-        /// Board name.
-        #[arg(short, long)]
-        name: String,
-        /// Description.
-        #[arg(short, long)]
-        description: Option<String>,
-        /// Icon identifier.
-        #[arg(short, long)]
-        icon: Option<String>,
-        /// Visibility.
-        #[arg(short, long, value_enum, default_value = "private")]
-        visibility: VisibilityArg,
-    },
-    /// Update a board.
-    Update {
-        /// Board ID or name.
-        board_id: String,
-        /// New name.
-        #[arg(short, long)]
-        name: Option<String>,
-        /// New description.
-        #[arg(short, long)]
-        description: Option<String>,
-        /// New icon.
-        #[arg(short, long)]
-        icon: Option<String>,
-        /// New visibility.
-        #[arg(short, long, value_enum)]
-        visibility: Option<VisibilityArg>,
-    },
-    /// Delete a board.
-    Delete {
-        /// Board ID or name.
-        board_id: String,
-    },
-    /// Column management.
-    Column {
-        /// Column subcommand to run.
-        #[command(subcommand)]
-        action: ColumnAction,
-    },
-}
-
-/// Visibility values matching `BoardVisibility`.
-#[derive(Debug, Clone, Copy, Default, clap::ValueEnum)]
-pub enum VisibilityArg {
-    /// Private board.
-    #[default]
-    Private,
-    /// Internal board.
-    Internal,
-    /// Public board.
-    Public,
-}
-
-impl From<VisibilityArg> for i32 {
-    fn from(v: VisibilityArg) -> Self {
-        match v {
-            VisibilityArg::Private => BoardVisibility::Private as i32,
-            VisibilityArg::Internal => BoardVisibility::Internal as i32,
-            VisibilityArg::Public => BoardVisibility::Public as i32,
-        }
-    }
-}
-
-/// Board column actions.
-#[derive(Debug, Subcommand)]
-pub enum ColumnAction {
-    /// Add a column.
-    Add {
-        /// Board ID or name.
-        board_id: String,
-        /// Column title.
-        #[arg(short, long)]
-        title: String,
-        /// Accent color.
-        #[arg(short, long)]
-        accent: Option<String>,
-        /// WIP limit.
-        #[arg(short, long)]
-        wip_limit: Option<i32>,
-        /// Position.
-        #[arg(short, long)]
-        position: Option<i32>,
-    },
-    /// Update a column.
-    Update {
-        /// Board ID or name.
-        board_id: String,
-        /// Column ID or title.
-        column_id: String,
-        /// New title.
-        #[arg(short, long)]
-        title: Option<String>,
-        /// New accent.
-        #[arg(short, long)]
-        accent: Option<String>,
-        /// New WIP limit.
-        #[arg(short, long)]
-        wip_limit: Option<i32>,
-    },
-    /// Remove a column.
-    Remove {
-        /// Board ID or name.
-        board_id: String,
-        /// Column ID or title.
-        column_id: String,
-    },
-    /// Move a column.
-    Move {
-        /// Board ID or name.
-        board_id: String,
-        /// Column ID or title.
-        column_id: String,
-        /// New position.
-        #[arg(short, long)]
-        position: i32,
-    },
-}
 
 /// Serializable board for output.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -275,26 +135,6 @@ pub struct ColumnRemoveOut {
     pub board_id: String,
     /// Removed column ID.
     pub column_id: String,
-}
-
-/// Result of running a board command.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum BoardOutput {
-    /// List of boards.
-    List(Vec<BoardOut>),
-    /// Board detail.
-    Detail(BoardDetailOut),
-    /// Single board.
-    Board(BoardOut),
-    /// Deletion confirmation.
-    Deleted(BoardDeleteOut),
-    /// Single column.
-    Column(ColumnOut),
-    /// List of columns.
-    ColumnList(Vec<ColumnOut>),
-    /// Column removal confirmation.
-    ColumnRemoved(ColumnRemoveOut),
 }
 
 fn board_visibility_name(v: i32) -> String {
@@ -464,9 +304,6 @@ pub async fn build_client(
 }
 
 /// Resolve a column identifier from a raw string within a board.
-///
-/// If `raw` is ID-shaped it is returned unchanged; otherwise the board detail
-/// is fetched and the unique column title match is returned.
 async fn resolve_column_id(
     client: &mut dyn BoardService,
     board_id: &str,
@@ -490,225 +327,239 @@ async fn resolve_column_id(
     resolve::unique_match(matches, "column", raw)
 }
 
-/// Run a board command and return the result data.
-pub async fn run(cmd: BoardAction, client: &mut dyn BoardService) -> Result<BoardOutput> {
-    match cmd {
-        BoardAction::List { project } => {
-            let resp = client
-                .list_boards(tonic::Request::new(ListBoardsRequest {
-                    project_id: project.clone(),
-                }))
-                .await
-                .with_ctx(|| "list boards failed".to_string())?;
-            let boards: Vec<BoardOut> = resp.boards.into_iter().map(Into::into).collect();
-            Ok(BoardOutput::List(boards))
-        }
-        BoardAction::Get { board_id } => {
-            let resp = client
-                .get_board(tonic::Request::new(GetBoardRequest {
-                    board_id: board_id.clone(),
-                }))
-                .await
-                .with_ctx(|| "get board failed".to_string())?;
-            Ok(BoardOutput::Detail(BoardDetailOut {
-                board: resp.board.map(BoardOut::from).unwrap_or(BoardOut {
-                    id: board_id,
-                    project_id: String::new(),
-                    name: String::new(),
-                    description: String::new(),
-                    icon: String::new(),
-                    created_at: String::new(),
-                    updated_at: String::new(),
-                    columns_count: 0,
-                    cards_count: 0,
-                    visibility: String::new(),
-                }),
-                columns: resp.columns.into_iter().map(Into::into).collect(),
-            }))
-        }
-        BoardAction::Create {
-            project,
-            name,
-            description,
-            icon,
-            visibility,
-        } => {
-            let req = CreateBoardRequest {
-                project_id: project.clone(),
-                name,
-                description: description.unwrap_or_default(),
-                icon: icon.unwrap_or_default(),
-                idempotency_key: crate::kanban::new_idempotency_key(),
-                visibility: visibility.into(),
-            };
-            let req = crate::kanban::client::request_with_object_id(req, &project)?;
-            let resp = client
-                .create_board(req)
-                .await
-                .with_ctx(|| "create board failed".to_string())?;
-            Ok(BoardOutput::Board(BoardOut::from(resp)))
-        }
-        BoardAction::Update {
-            board_id,
-            name,
-            description,
-            icon,
-            visibility,
-        } => {
-            let mut paths = Vec::new();
-            if name.is_some() {
-                paths.push("name".to_string());
-            }
-            if description.is_some() {
-                paths.push("description".to_string());
-            }
-            if icon.is_some() {
-                paths.push("icon".to_string());
-            }
-            if visibility.is_some() {
-                paths.push("visibility".to_string());
-            }
-            let req = UpdateBoardRequest {
-                board_id: board_id.clone(),
-                board: Some(client::Board {
-                    id: board_id.clone(),
-                    name: name.unwrap_or_default(),
-                    description: description.unwrap_or_default(),
-                    icon: icon.unwrap_or_default(),
-                    visibility: visibility.map(|v| v.into()).unwrap_or_default(),
-                    ..Default::default()
-                }),
-                update_mask: Some(FieldMask { paths }),
-            };
-            let req = crate::kanban::client::request_with_object_id(req, &board_id)?;
-            let resp = client
-                .update_board(req)
-                .await
-                .with_ctx(|| "update board failed".to_string())?;
-            Ok(BoardOutput::Board(BoardOut::from(resp)))
-        }
-        BoardAction::Delete { board_id } => {
-            let req = crate::kanban::client::request_with_object_id(
-                DeleteBoardRequest {
-                    board_id: board_id.clone(),
-                },
-                &board_id,
-            )?;
-            client
-                .delete_board(req)
-                .await
-                .with_ctx(|| "delete board failed".to_string())?;
-            Ok(BoardOutput::Deleted(BoardDeleteOut {
-                deleted: true,
-                board_id,
-            }))
-        }
-        BoardAction::Column { action } => match action {
-            ColumnAction::Add {
-                board_id,
-                title,
-                accent,
-                wip_limit,
-                position,
-            } => {
-                let req = AddColumnRequest {
-                    board_id: board_id.clone(),
-                    title,
-                    accent: accent.unwrap_or_default(),
-                    wip_limit: wip_limit.unwrap_or_default(),
-                    position: position.unwrap_or_default(),
-                    idempotency_key: crate::kanban::new_idempotency_key(),
-                };
-                let req = crate::kanban::client::request_with_object_id(req, &board_id)?;
-                let resp = client
-                    .add_column(req)
-                    .await
-                    .with_ctx(|| "add column failed".to_string())?;
-                Ok(BoardOutput::Column(ColumnOut::from(resp)))
-            }
-            ColumnAction::Update {
-                board_id,
-                column_id,
-                title,
-                accent,
-                wip_limit,
-            } => {
-                let column_id = resolve_column_id(client, &board_id, &column_id).await?;
-                let mut paths = Vec::new();
-                if title.is_some() {
-                    paths.push("title".to_string());
-                }
-                if accent.is_some() {
-                    paths.push("accent".to_string());
-                }
-                if wip_limit.is_some() {
-                    paths.push("wip_limit".to_string());
-                }
-                let req = UpdateColumnRequest {
-                    board_id: board_id.clone(),
-                    column_id: column_id.clone(),
-                    column: Some(client::Column {
-                        id: column_id.clone(),
-                        board_id: board_id.clone(),
-                        title: title.unwrap_or_default(),
-                        accent: accent.unwrap_or_default(),
-                        wip_limit: wip_limit.unwrap_or_default(),
-                        ..Default::default()
-                    }),
-                    update_mask: Some(FieldMask { paths }),
-                };
-                let req = crate::kanban::client::request_with_object_id(req, &board_id)?;
-                let resp = client
-                    .update_column(req)
-                    .await
-                    .with_ctx(|| "update column failed".to_string())?;
-                Ok(BoardOutput::Column(ColumnOut::from(resp)))
-            }
-            ColumnAction::Remove {
-                board_id,
-                column_id,
-            } => {
-                let column_id = resolve_column_id(client, &board_id, &column_id).await?;
-                let req = crate::kanban::client::request_with_object_id(
-                    RemoveColumnRequest {
-                        board_id: board_id.clone(),
-                        column_id: column_id.clone(),
-                    },
-                    &board_id,
-                )?;
-                client
-                    .remove_column(req)
-                    .await
-                    .with_ctx(|| "remove column failed".to_string())?;
-                Ok(BoardOutput::ColumnRemoved(ColumnRemoveOut {
-                    removed: true,
-                    board_id,
-                    column_id,
-                }))
-            }
-            ColumnAction::Move {
-                board_id,
-                column_id,
-                position,
-            } => {
-                let column_id = resolve_column_id(client, &board_id, &column_id).await?;
-                let req = crate::kanban::client::request_with_object_id(
-                    MoveColumnRequest {
-                        board_id: board_id.clone(),
-                        column_id: column_id.clone(),
-                        to_position: position,
-                    },
-                    &board_id,
-                )?;
-                let resp = client
-                    .move_column(req)
-                    .await
-                    .with_ctx(|| "move column failed".to_string())?;
-                let columns: Vec<ColumnOut> = resp.columns.into_iter().map(Into::into).collect();
-                Ok(BoardOutput::ColumnList(columns))
-            }
-        },
+/// List boards in a project.
+pub async fn list_boards(client: &mut dyn BoardService, project_id: &str) -> Result<Vec<BoardOut>> {
+    let resp = client
+        .list_boards(tonic::Request::new(ListBoardsRequest {
+            project_id: project_id.to_string(),
+        }))
+        .await
+        .with_ctx(|| "list boards failed".to_string())?;
+    Ok(resp.boards.into_iter().map(Into::into).collect())
+}
+
+/// Get a board with its columns.
+pub async fn get_board(client: &mut dyn BoardService, board_id: &str) -> Result<BoardDetailOut> {
+    let resp = client
+        .get_board(tonic::Request::new(GetBoardRequest {
+            board_id: board_id.to_string(),
+        }))
+        .await
+        .with_ctx(|| "get board failed".to_string())?;
+    Ok(BoardDetailOut {
+        board: resp.board.map(BoardOut::from).unwrap_or(BoardOut {
+            id: board_id.to_string(),
+            project_id: String::new(),
+            name: String::new(),
+            description: String::new(),
+            icon: String::new(),
+            created_at: String::new(),
+            updated_at: String::new(),
+            columns_count: 0,
+            cards_count: 0,
+            visibility: String::new(),
+        }),
+        columns: resp.columns.into_iter().map(Into::into).collect(),
+    })
+}
+
+/// Create a board.
+pub async fn create_board(
+    client: &mut dyn BoardService,
+    project_id: &str,
+    name: &str,
+    description: Option<&str>,
+    icon: Option<&str>,
+    visibility: BoardVisibility,
+) -> Result<BoardOut> {
+    let req = CreateBoardRequest {
+        project_id: project_id.to_string(),
+        name: name.to_string(),
+        description: description.unwrap_or("").to_string(),
+        icon: icon.unwrap_or("").to_string(),
+        idempotency_key: crate::kanban::new_idempotency_key(),
+        visibility: visibility as i32,
+    };
+    let req = crate::kanban::client::request_with_object_id(req, project_id)?;
+    let resp = client
+        .create_board(req)
+        .await
+        .with_ctx(|| "create board failed".to_string())?;
+    Ok(BoardOut::from(resp))
+}
+
+/// Update a board.
+pub async fn update_board(
+    client: &mut dyn BoardService,
+    board_id: &str,
+    name: Option<&str>,
+    description: Option<&str>,
+    icon: Option<&str>,
+    visibility: Option<BoardVisibility>,
+) -> Result<BoardOut> {
+    let mut paths = Vec::new();
+    if name.is_some() {
+        paths.push("name".to_string());
     }
+    if description.is_some() {
+        paths.push("description".to_string());
+    }
+    if icon.is_some() {
+        paths.push("icon".to_string());
+    }
+    if visibility.is_some() {
+        paths.push("visibility".to_string());
+    }
+    let req = UpdateBoardRequest {
+        board_id: board_id.to_string(),
+        board: Some(client::Board {
+            id: board_id.to_string(),
+            name: name.unwrap_or("").to_string(),
+            description: description.unwrap_or("").to_string(),
+            icon: icon.unwrap_or("").to_string(),
+            visibility: visibility.map(|v| v as i32).unwrap_or_default(),
+            ..Default::default()
+        }),
+        update_mask: Some(FieldMask { paths }),
+    };
+    let req = crate::kanban::client::request_with_object_id(req, board_id)?;
+    let resp = client
+        .update_board(req)
+        .await
+        .with_ctx(|| "update board failed".to_string())?;
+    Ok(BoardOut::from(resp))
+}
+
+/// Delete a board.
+pub async fn delete_board(client: &mut dyn BoardService, board_id: &str) -> Result<BoardDeleteOut> {
+    let req = crate::kanban::client::request_with_object_id(
+        DeleteBoardRequest {
+            board_id: board_id.to_string(),
+        },
+        board_id,
+    )?;
+    client
+        .delete_board(req)
+        .await
+        .with_ctx(|| "delete board failed".to_string())?;
+    Ok(BoardDeleteOut {
+        deleted: true,
+        board_id: board_id.to_string(),
+    })
+}
+
+/// Add a column to a board.
+pub async fn add_column(
+    client: &mut dyn BoardService,
+    board_id: &str,
+    title: &str,
+    accent: Option<&str>,
+    wip_limit: Option<i32>,
+    position: Option<i32>,
+) -> Result<ColumnOut> {
+    let req = AddColumnRequest {
+        board_id: board_id.to_string(),
+        title: title.to_string(),
+        accent: accent.unwrap_or("").to_string(),
+        wip_limit: wip_limit.unwrap_or_default(),
+        position: position.unwrap_or_default(),
+        idempotency_key: crate::kanban::new_idempotency_key(),
+    };
+    let req = crate::kanban::client::request_with_object_id(req, board_id)?;
+    let resp = client
+        .add_column(req)
+        .await
+        .with_ctx(|| "add column failed".to_string())?;
+    Ok(ColumnOut::from(resp))
+}
+
+/// Update a column.
+pub async fn update_column(
+    client: &mut dyn BoardService,
+    board_id: &str,
+    column_id: &str,
+    title: Option<&str>,
+    accent: Option<&str>,
+    wip_limit: Option<i32>,
+) -> Result<ColumnOut> {
+    let column_id = resolve_column_id(client, board_id, column_id).await?;
+    let mut paths = Vec::new();
+    if title.is_some() {
+        paths.push("title".to_string());
+    }
+    if accent.is_some() {
+        paths.push("accent".to_string());
+    }
+    if wip_limit.is_some() {
+        paths.push("wip_limit".to_string());
+    }
+    let req = UpdateColumnRequest {
+        board_id: board_id.to_string(),
+        column_id: column_id.clone(),
+        column: Some(client::Column {
+            id: column_id.clone(),
+            board_id: board_id.to_string(),
+            title: title.unwrap_or("").to_string(),
+            accent: accent.unwrap_or("").to_string(),
+            wip_limit: wip_limit.unwrap_or_default(),
+            ..Default::default()
+        }),
+        update_mask: Some(FieldMask { paths }),
+    };
+    let req = crate::kanban::client::request_with_object_id(req, board_id)?;
+    let resp = client
+        .update_column(req)
+        .await
+        .with_ctx(|| "update column failed".to_string())?;
+    Ok(ColumnOut::from(resp))
+}
+
+/// Remove a column from a board.
+pub async fn remove_column(
+    client: &mut dyn BoardService,
+    board_id: &str,
+    column_id: &str,
+) -> Result<ColumnRemoveOut> {
+    let column_id = resolve_column_id(client, board_id, column_id).await?;
+    let req = crate::kanban::client::request_with_object_id(
+        RemoveColumnRequest {
+            board_id: board_id.to_string(),
+            column_id: column_id.clone(),
+        },
+        board_id,
+    )?;
+    client
+        .remove_column(req)
+        .await
+        .with_ctx(|| "remove column failed".to_string())?;
+    Ok(ColumnRemoveOut {
+        removed: true,
+        board_id: board_id.to_string(),
+        column_id,
+    })
+}
+
+/// Move a column within a board.
+pub async fn move_column(
+    client: &mut dyn BoardService,
+    board_id: &str,
+    column_id: &str,
+    position: i32,
+) -> Result<Vec<ColumnOut>> {
+    let column_id = resolve_column_id(client, board_id, column_id).await?;
+    let req = crate::kanban::client::request_with_object_id(
+        MoveColumnRequest {
+            board_id: board_id.to_string(),
+            column_id: column_id.clone(),
+            to_position: position,
+        },
+        board_id,
+    )?;
+    let resp = client
+        .move_column(req)
+        .await
+        .with_ctx(|| "move column failed".to_string())?;
+    Ok(resp.columns.into_iter().map(Into::into).collect())
 }
 
 #[cfg(test)]
@@ -768,22 +619,9 @@ mod tests {
                 })
             });
 
-        let out = run(
-            BoardAction::List {
-                project: "proj_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            BoardOutput::List(boards) => {
-                assert_eq!(boards.len(), 1);
-                assert_eq!(boards[0].id, "board_1");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let boards = list_boards(&mut mock, "proj_1").await.unwrap();
+        assert_eq!(boards.len(), 1);
+        assert_eq!(boards[0].id, "board_1");
     }
 
     #[tokio::test]
@@ -799,22 +637,9 @@ mod tests {
                 })
             });
 
-        let out = run(
-            BoardAction::Get {
-                board_id: "board_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            BoardOutput::Detail(d) => {
-                assert_eq!(d.board.id, "board_1");
-                assert_eq!(d.columns.len(), 1);
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let detail = get_board(&mut mock, "board_1").await.unwrap();
+        assert_eq!(detail.board.id, "board_1");
+        assert_eq!(detail.columns.len(), 1);
     }
 
     #[tokio::test]
@@ -830,20 +655,17 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_board("board_new")));
 
-        let out = run(
-            BoardAction::Create {
-                project: "proj_1".into(),
-                name: "Roadmap".into(),
-                description: None,
-                icon: None,
-                visibility: VisibilityArg::Internal,
-            },
+        let board = create_board(
             &mut mock,
+            "proj_1",
+            "Roadmap",
+            None,
+            None,
+            BoardVisibility::Internal,
         )
         .await
         .unwrap();
-
-        assert!(matches!(out, BoardOutput::Board(_)));
+        assert_eq!(board.id, "board_new");
     }
 
     #[tokio::test]
@@ -874,23 +696,10 @@ mod tests {
                 Ok(b)
             });
 
-        let out = run(
-            BoardAction::Update {
-                board_id: "board_1".into(),
-                name: Some("Renamed".into()),
-                description: None,
-                icon: None,
-                visibility: None,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            BoardOutput::Board(b) => assert_eq!(b.name, "Renamed"),
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let board = update_board(&mut mock, "board_1", Some("Renamed"), None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(board.name, "Renamed");
     }
 
     #[tokio::test]
@@ -901,22 +710,9 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let out = run(
-            BoardAction::Delete {
-                board_id: "board_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            BoardOutput::Deleted(d) => {
-                assert!(d.deleted);
-                assert_eq!(d.board_id, "board_1");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let out = delete_board(&mut mock, "board_1").await.unwrap();
+        assert!(out.deleted);
+        assert_eq!(out.board_id, "board_1");
     }
 
     #[tokio::test]
@@ -930,293 +726,14 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_column("col_new", "board_1", 2)));
 
-        let out = run(
-            BoardAction::Column {
-                action: ColumnAction::Add {
-                    board_id: "board_1".into(),
-                    title: "Review".into(),
-                    accent: None,
-                    wip_limit: None,
-                    position: None,
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, BoardOutput::Column(_)));
+        let col = add_column(&mut mock, "board_1", "Review", None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(col.id, "col_new");
     }
 
     #[tokio::test]
     async fn column_update_returns_column() {
-        let mut mock = MockBoardService::new();
-        mock.expect_update_column()
-            .withf(|req| {
-                let r = req.get_ref();
-                r.board_id == "board_1"
-                    && r.column_id == "col_1"
-                    && r.column
-                        .as_ref()
-                        .map(|c| c.title == "Done")
-                        .unwrap_or(false)
-                    && r.update_mask
-                        .as_ref()
-                        .map(|m| m.paths == vec!["title"])
-                        .unwrap_or(false)
-            })
-            .times(1)
-            .returning(|_| Ok(sample_column("col_1", "board_1", 1)));
-
-        let out = run(
-            BoardAction::Column {
-                action: ColumnAction::Update {
-                    board_id: "board_1".into(),
-                    column_id: "col_1".into(),
-                    title: Some("Done".into()),
-                    accent: None,
-                    wip_limit: None,
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, BoardOutput::Column(_)));
-    }
-
-    #[tokio::test]
-    async fn column_remove_succeeds() {
-        let mut mock = MockBoardService::new();
-        mock.expect_remove_column()
-            .withf(|req| {
-                let r = req.get_ref();
-                r.board_id == "board_1" && r.column_id == "col_1"
-            })
-            .times(1)
-            .returning(|_| Ok(()));
-
-        let out = run(
-            BoardAction::Column {
-                action: ColumnAction::Remove {
-                    board_id: "board_1".into(),
-                    column_id: "col_1".into(),
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            BoardOutput::ColumnRemoved(r) => {
-                assert!(r.removed);
-                assert_eq!(r.column_id, "col_1");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn column_move_returns_columns() {
-        let mut mock = MockBoardService::new();
-        mock.expect_move_column()
-            .withf(|req| {
-                let r = req.get_ref();
-                r.board_id == "board_1" && r.column_id == "col_1" && r.to_position == 2
-            })
-            .times(1)
-            .returning(|_| {
-                Ok(client::MoveColumnResponse {
-                    columns: vec![
-                        sample_column("col_2", "board_1", 1),
-                        sample_column("col_1", "board_1", 2),
-                    ],
-                })
-            });
-
-        let out = run(
-            BoardAction::Column {
-                action: ColumnAction::Move {
-                    board_id: "board_1".into(),
-                    column_id: "col_1".into(),
-                    position: 2,
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            BoardOutput::ColumnList(cols) => assert_eq!(cols.len(), 2),
-            other => panic!("unexpected output: {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn list_boards_returns_data() {
-        let mut mock = MockBoardService::new();
-        mock.expect_list_boards().times(1).returning(|_| {
-            Ok(client::ListBoardsResponse {
-                boards: vec![sample_board("board_1")],
-            })
-        });
-
-        let out = run(
-            BoardAction::List {
-                project: "proj_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, BoardOutput::List(_)));
-    }
-
-    #[tokio::test]
-    async fn create_board_with_all_options_returns() {
-        let mut mock = MockBoardService::new();
-        mock.expect_create_board()
-            .withf(|req| {
-                let r = req.get_ref();
-                r.project_id == "proj_1"
-                    && r.name == "N"
-                    && r.description == "D"
-                    && r.icon == "I"
-                    && r.visibility == BoardVisibility::Public as i32
-                    && !r.idempotency_key.is_empty()
-            })
-            .times(1)
-            .returning(|_| Ok(sample_board("board_new")));
-
-        let out = run(
-            BoardAction::Create {
-                project: "proj_1".into(),
-                name: "N".into(),
-                description: Some("D".into()),
-                icon: Some("I".into()),
-                visibility: VisibilityArg::Public,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, BoardOutput::Board(_)));
-    }
-
-    #[tokio::test]
-    async fn update_board_with_all_options_returns() {
-        let mut mock = MockBoardService::new();
-        mock.expect_update_board()
-            .withf(|req| {
-                let r = req.get_ref();
-                let paths = r.update_mask.as_ref().map(|m| m.paths.clone());
-                paths
-                    == Some(vec![
-                        "name".into(),
-                        "description".into(),
-                        "icon".into(),
-                        "visibility".into(),
-                    ])
-            })
-            .times(1)
-            .returning(|_| Ok(sample_board("board_1")));
-
-        let out = run(
-            BoardAction::Update {
-                board_id: "board_1".into(),
-                name: Some("N".into()),
-                description: Some("D".into()),
-                icon: Some("I".into()),
-                visibility: Some(VisibilityArg::Internal),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, BoardOutput::Board(_)));
-    }
-
-    #[tokio::test]
-    async fn column_add_with_all_options_returns() {
-        let mut mock = MockBoardService::new();
-        mock.expect_add_column()
-            .withf(|req| {
-                let r = req.get_ref();
-                r.board_id == "board_1"
-                    && r.title == "T"
-                    && r.accent == "a"
-                    && r.wip_limit == 5
-                    && r.position == 3
-                    && !r.idempotency_key.is_empty()
-            })
-            .times(1)
-            .returning(|_| Ok(sample_column("col_new", "board_1", 3)));
-
-        let out = run(
-            BoardAction::Column {
-                action: ColumnAction::Add {
-                    board_id: "board_1".into(),
-                    title: "T".into(),
-                    accent: Some("a".into()),
-                    wip_limit: Some(5),
-                    position: Some(3),
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, BoardOutput::Column(_)));
-    }
-
-    #[tokio::test]
-    async fn column_update_with_all_options_returns() {
-        let mut mock = MockBoardService::new();
-        mock.expect_update_column()
-            .withf(|req| {
-                let r = req.get_ref();
-                let paths = r.update_mask.as_ref().map(|m| m.paths.clone());
-                paths == Some(vec!["title".into(), "accent".into(), "wip_limit".into()])
-            })
-            .times(1)
-            .returning(|_| Ok(sample_column("col_1", "board_1", 1)));
-
-        let out = run(
-            BoardAction::Column {
-                action: ColumnAction::Update {
-                    board_id: "board_1".into(),
-                    column_id: "col_1".into(),
-                    title: Some("T".into()),
-                    accent: Some("a".into()),
-                    wip_limit: Some(5),
-                },
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, BoardOutput::Column(_)));
-    }
-
-    #[test]
-    fn board_visibility_name_covers_default() {
-        assert_eq!(
-            board_visibility_name(BoardVisibility::Public as i32),
-            "public"
-        );
-        assert_eq!(board_visibility_name(99), "unspecified");
-    }
-
-    #[tokio::test]
-    async fn column_update_resolves_title() {
         let mut mock = MockBoardService::new();
         mock.expect_get_board()
             .withf(|req| req.get_ref().board_id == "board_1")
@@ -1234,28 +751,138 @@ mod tests {
                     && r.column_id == "col_1"
                     && r.column
                         .as_ref()
-                        .map(|c| c.title == "Renamed")
+                        .map(|c| c.title == "Done")
+                        .unwrap_or(false)
+                    && r.update_mask
+                        .as_ref()
+                        .map(|m| m.paths == vec!["title"])
                         .unwrap_or(false)
             })
             .times(1)
-            .returning(|_| Ok(sample_column("col_1", "board_1", 1)));
+            .returning(|_| {
+                let mut col = sample_column("col_1", "board_1", 1);
+                col.title = "Done".into();
+                Ok(col)
+            });
 
-        let out = run(
-            BoardAction::Column {
-                action: ColumnAction::Update {
-                    board_id: "board_1".into(),
-                    column_id: "To Do".into(),
-                    title: Some("Renamed".into()),
-                    accent: None,
-                    wip_limit: None,
-                },
-            },
+        let col = update_column(&mut mock, "board_1", "To Do", Some("Done"), None, None)
+            .await
+            .unwrap();
+        assert_eq!(col.title, "Done");
+    }
+
+    #[tokio::test]
+    async fn column_remove_succeeds() {
+        let mut mock = MockBoardService::new();
+        mock.expect_get_board()
+            .withf(|req| req.get_ref().board_id == "board_1")
+            .times(1)
+            .returning(|_| {
+                Ok(client::BoardDetail {
+                    board: Some(sample_board("board_1")),
+                    columns: vec![sample_column("col_1", "board_1", 1)],
+                })
+            });
+        mock.expect_remove_column()
+            .withf(|req| {
+                let r = req.get_ref();
+                r.board_id == "board_1" && r.column_id == "col_1"
+            })
+            .times(1)
+            .returning(|_| Ok(()));
+
+        let out = remove_column(&mut mock, "board_1", "To Do").await.unwrap();
+        assert!(out.removed);
+        assert_eq!(out.column_id, "col_1");
+    }
+
+    #[tokio::test]
+    async fn column_move_returns_columns() {
+        let mut mock = MockBoardService::new();
+        mock.expect_get_board()
+            .withf(|req| req.get_ref().board_id == "board_1")
+            .times(1)
+            .returning(|_| {
+                Ok(client::BoardDetail {
+                    board: Some(sample_board("board_1")),
+                    columns: vec![sample_column("col_1", "board_1", 1)],
+                })
+            });
+        mock.expect_move_column()
+            .withf(|req| {
+                let r = req.get_ref();
+                r.board_id == "board_1" && r.column_id == "col_1" && r.to_position == 2
+            })
+            .times(1)
+            .returning(|_| {
+                Ok(client::MoveColumnResponse {
+                    columns: vec![sample_column("col_1", "board_1", 2)],
+                })
+            });
+
+        let cols = move_column(&mut mock, "board_1", "To Do", 2).await.unwrap();
+        assert_eq!(cols.len(), 1);
+        assert_eq!(cols[0].position, 2);
+    }
+
+    #[tokio::test]
+    async fn create_with_all_options_returns_board() {
+        let mut mock = MockBoardService::new();
+        mock.expect_create_board()
+            .withf(|req| {
+                let r = req.get_ref();
+                r.project_id == "proj_1"
+                    && r.name == "N"
+                    && r.description == "D"
+                    && r.icon == "I"
+                    && r.visibility == BoardVisibility::Public as i32
+            })
+            .times(1)
+            .returning(|_| Ok(sample_board("board_1")));
+
+        let board = create_board(
             &mut mock,
+            "proj_1",
+            "N",
+            Some("D"),
+            Some("I"),
+            BoardVisibility::Public,
         )
         .await
         .unwrap();
+        assert_eq!(board.id, "board_1");
+    }
 
-        assert!(matches!(out, BoardOutput::Column(_)));
+    #[tokio::test]
+    async fn update_with_all_options_returns_board() {
+        let mut mock = MockBoardService::new();
+        mock.expect_update_board()
+            .withf(|req| {
+                let r = req.get_ref();
+                let paths = r.update_mask.as_ref().map(|m| m.paths.clone());
+                r.board_id == "board_1"
+                    && paths
+                        == Some(vec![
+                            "name".into(),
+                            "description".into(),
+                            "icon".into(),
+                            "visibility".into(),
+                        ])
+            })
+            .times(1)
+            .returning(|_| Ok(sample_board("board_1")));
+
+        let board = update_board(
+            &mut mock,
+            "board_1",
+            Some("N"),
+            Some("D"),
+            Some("I"),
+            Some(BoardVisibility::Internal),
+        )
+        .await
+        .unwrap();
+        assert_eq!(board.id, "board_1");
     }
 
     #[tokio::test]

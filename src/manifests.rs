@@ -106,7 +106,7 @@ pub struct ApplyOptions {
 /// for directories that contain a `kustomization.yaml` (or `.yml`).
 ///
 /// Returns a sorted list of directory names. Each name corresponds to a
-/// namespace/service that can be passed to `sunbeam service apply <name>`.
+/// namespace/service that can be applied via `apply_manifests`.
 pub fn discover_services(infra_dir: &std::path::Path) -> Result<Vec<String>> {
     let base = infra_dir.join("base");
     if !base.exists() {
@@ -155,7 +155,7 @@ pub async fn apply_manifests(
         .unwrap_or(&ctx.domain);
     let email = &ctx.acme_email;
     if resolved_domain.is_empty() {
-        bail!("domain not set — run `sunbeam config set --domain <domain>` first");
+        bail!("domain not set in the active context");
     }
 
     let infra_dir = crate::config::get_infra_dir();

@@ -26,7 +26,7 @@ pub fn default_server_url_for(ctx: &crate::config::Context) -> Result<String> {
     let domain = ctx.domain.clone();
     if domain.is_empty() {
         return Err(SunbeamError::config(
-            "no domain configured; set one with `sunbeam config set --domain ...` or pass --url",
+            "no domain configured in the active context; set a domain or pass a server URL",
         ));
     }
     Ok(format!("https://kanban.{domain}"))
@@ -49,7 +49,7 @@ pub fn resolve_server_url(url_override: Option<&str>) -> Result<String> {
 pub async fn require_token() -> Result<String> {
     crate::auth::get_token()
         .await
-        .with_ctx(|| "run `sunbeam auth login` first".to_string())
+        .with_ctx(|| "no valid authentication token available".to_string())
 }
 
 /// Format a chrono UTC timestamp as a short ISO 8601 string.

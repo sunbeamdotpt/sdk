@@ -1,21 +1,13 @@
-//! Kanban search commands.
+//! Kanban search operations.
 
 use crate::error::Result;
 use crate::kanban::client::{self, SearchServiceClient};
 use crate::logger::Logger;
 use async_trait::async_trait;
-use clap::Args;
 use serde::Serialize;
 
-/// Search arguments.
-#[derive(Debug, Args)]
-pub struct SearchAction {
-    /// Query string.
-    pub query: String,
-    /// Max results.
-    #[arg(short, long)]
-    pub limit: Option<i32>,
-}
+/// Default number of search results to return.
+pub const DEFAULT_SEARCH_LIMIT: i32 = 20;
 
 /// Serializable search hit.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -83,13 +75,15 @@ pub async fn build_client(
     )))
 }
 
-/// Run a search command and return the matching hits.
-pub async fn run(cmd: SearchAction, client: &mut dyn SearchService) -> Result<Vec<SearchHitOut>> {
-    let SearchAction { query, limit } = cmd;
-
+/// Search cards by query and return the matching hits.
+pub async fn search_cards(
+    client: &mut dyn SearchService,
+    query: &str,
+    limit: Option<i32>,
+) -> Result<Vec<SearchHitOut>> {
     let req = client::SearchCardsRequest {
-        query,
-        limit: limit.unwrap_or(20),
+        query: query.to_string(),
+        limit: limit.unwrap_or(DEFAULT_SEARCH_LIMIT),
         ..Default::default()
     };
     let resp = client.search_cards(req).await?;
@@ -117,7 +111,7 @@ mod tests {
     async fn search_returns_hits() {
         let mut mock = MockSearchService::new();
         mock.expect_search_cards()
-            .withf(|req| req.query == "frontend crash" && req.limit == 20)
+            .withf(|req| req.query == "frontend crash" && req.limit == DEFAULT_SEARCH_LIMIT)
             .times(1)
             .returning(|_| {
                 Ok(client::SearchCardsResponse {
@@ -139,15 +133,9 @@ mod tests {
                 })
             });
 
-        let hits = run(
-            SearchAction {
-                query: "frontend crash".into(),
-                limit: None,
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        let hits = search_cards(&mut mock, "frontend crash", None)
+            .await
+            .unwrap();
 
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].card_id, "card_1");
@@ -168,15 +156,7 @@ mod tests {
                 })
             });
 
-        let hits = run(
-            SearchAction {
-                query: "test".into(),
-                limit: Some(5),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        let hits = search_cards(&mut mock, "test", Some(5)).await.unwrap();
 
         assert!(hits.is_empty());
     }

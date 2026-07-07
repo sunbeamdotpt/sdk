@@ -1,47 +1,11 @@
-//! Kanban attachment commands.
+//! Kanban attachment operations.
 
 use crate::error::{Result, ResultExt, SunbeamError};
 use crate::kanban::client::{self, AttachmentServiceClient};
 use crate::logger::Logger;
 use async_trait::async_trait;
-use clap::Subcommand;
 use serde::Serialize;
 use tonic::metadata::MetadataValue;
-
-/// Attachment actions.
-#[derive(Debug, Subcommand)]
-pub enum AttachmentAction {
-    /// List attachments for a card.
-    List {
-        /// Card ID.
-        card_id: String,
-    },
-    /// Upload a file to a card.
-    Upload {
-        /// Card ID.
-        card_id: String,
-        /// Local file path.
-        file: String,
-    },
-    /// Download an attachment.
-    Download {
-        /// Card ID.
-        #[arg(short, long)]
-        card: String,
-        /// Attachment ID.
-        attachment_id: String,
-        /// Destination path.
-        path: String,
-    },
-    /// Delete an attachment.
-    Delete {
-        /// Card ID.
-        #[arg(short, long)]
-        card: String,
-        /// Attachment ID.
-        attachment_id: String,
-    },
-}
 
 /// Serializable attachment record.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -82,20 +46,6 @@ pub struct AttachmentDownloadOut {
     pub path: String,
     /// Bytes written.
     pub bytes: usize,
-}
-
-/// Result of running an attachment command.
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum AttachmentOutput {
-    /// List of attachments.
-    List(Vec<AttachmentOut>),
-    /// Uploaded attachment.
-    Uploaded(AttachmentOut),
-    /// Download confirmation.
-    Downloaded(AttachmentDownloadOut),
-    /// Deletion confirmation.
-    Deleted(AttachmentDeleteOut),
 }
 
 /// Build a mutating request with object-id and idempotency headers.
@@ -271,8 +221,7 @@ pub async fn build_client(
 }
 
 /// Resolve attachment uploader subjects to email addresses through the Kratos
-/// admin API. Configure the endpoint with the `kratos-admin-url` field in the
-/// active context.
+/// admin API.
 async fn resolve_uploader_emails(attachments: &mut [AttachmentOut]) {
     let subjects: Vec<&str> = attachments
         .iter()
@@ -299,130 +248,137 @@ async fn resolve_uploader_emails(attachments: &mut [AttachmentOut]) {
     }
 }
 
-/// Run an attachment command and return the result data.
-pub async fn run(
-    cmd: AttachmentAction,
+/// List attachments for a card.
+pub async fn list_attachments(
     client: &mut dyn AttachmentService,
-) -> Result<AttachmentOutput> {
-    match cmd {
-        AttachmentAction::List { card_id } => {
-            let req = client::ListAttachmentsByCardRequest {
-                card_id: card_id.clone(),
-            };
-            let resp = client
-                .list_attachments_by_card(client::request_with_object_id(req, &card_id)?)
-                .await?;
-            let mut attachments: Vec<_> =
-                resp.attachments.into_iter().map(attachment_out).collect();
-            resolve_uploader_emails(&mut attachments).await;
-            Ok(AttachmentOutput::List(attachments))
-        }
-        AttachmentAction::Upload { card_id, file } => {
-            let bytes = tokio::fs::read(&file)
-                .await
-                .with_ctx(|| format!("failed to read file {file}"))?;
-            let filename = std::path::Path::new(&file)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&file)
-                .to_string();
-            let mime_type = guess_mime_type(&file);
-            let size_bytes = bytes.len() as i64;
+    card_id: &str,
+) -> Result<Vec<AttachmentOut>> {
+    let req = client::ListAttachmentsByCardRequest {
+        card_id: card_id.to_string(),
+    };
+    let resp = client
+        .list_attachments_by_card(client::request_with_object_id(req, card_id)?)
+        .await?;
+    let mut attachments: Vec<_> = resp.attachments.into_iter().map(attachment_out).collect();
+    resolve_uploader_emails(&mut attachments).await;
+    Ok(attachments)
+}
 
-            let init_req = client::RequestPresignedUploadRequest {
-                card_id: card_id.clone(),
-                filename,
-                mime_type: mime_type.clone(),
-                size_bytes,
-            };
-            let init = client
-                .request_presigned_upload(mutating_request(init_req, &card_id)?)
-                .await?;
+/// Upload a file to a card.
+pub async fn upload_attachment(
+    client: &mut dyn AttachmentService,
+    card_id: &str,
+    file: &str,
+) -> Result<AttachmentOut> {
+    let bytes = tokio::fs::read(file)
+        .await
+        .with_ctx(|| format!("failed to read file {file}"))?;
+    let filename = std::path::Path::new(file)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(file)
+        .to_string();
+    let mime_type = guess_mime_type(file);
+    let size_bytes = bytes.len() as i64;
 
-            let http = reqwest::Client::new();
-            let put_resp = http
-                .put(&init.presigned_url)
-                .header(reqwest::header::CONTENT_TYPE, &mime_type)
-                .body(bytes)
-                .send()
-                .await
-                .with_ctx(|| "failed to PUT attachment to presigned URL".to_string())?;
-            if !put_resp.status().is_success() {
-                let status = put_resp.status();
-                let body = put_resp.text().await.unwrap_or_default();
-                return Err(SunbeamError::Network {
-                    context: format!("upload to presigned URL failed: {status} {body}"),
-                    source: None,
-                });
-            }
+    let init_req = client::RequestPresignedUploadRequest {
+        card_id: card_id.to_string(),
+        filename,
+        mime_type: mime_type.clone(),
+        size_bytes,
+    };
+    let init = client
+        .request_presigned_upload(mutating_request(init_req, card_id)?)
+        .await?;
 
-            let confirm_req = client::ConfirmUploadRequest {
-                attachment_id: init.attachment_id.clone(),
-            };
-            let confirmed = client
-                .confirm_upload(mutating_request(confirm_req, &card_id)?)
-                .await?;
-
-            let mut out = attachment_out(confirmed);
-            resolve_uploader_emails(std::slice::from_mut(&mut out)).await;
-            Ok(AttachmentOutput::Uploaded(out))
-        }
-        AttachmentAction::Download {
-            card,
-            attachment_id,
-            path,
-        } => {
-            let req = client::RequestPresignedDownloadRequest {
-                attachment_id: attachment_id.clone(),
-            };
-            let dl = client
-                .request_presigned_download(client::request_with_object_id(req, &card)?)
-                .await?;
-
-            let http = reqwest::Client::new();
-            let get_resp = http
-                .get(&dl.presigned_url)
-                .send()
-                .await
-                .with_ctx(|| "failed to GET attachment from presigned URL".to_string())?;
-            if !get_resp.status().is_success() {
-                let status = get_resp.status();
-                let body = get_resp.text().await.unwrap_or_default();
-                return Err(SunbeamError::Network {
-                    context: format!("download from presigned URL failed: {status} {body}"),
-                    source: None,
-                });
-            }
-            let bytes = get_resp
-                .bytes()
-                .await
-                .with_ctx(|| "failed to read attachment bytes".to_string())?;
-            tokio::fs::write(&path, &bytes)
-                .await
-                .with_ctx(|| format!("failed to write attachment to {path}"))?;
-
-            Ok(AttachmentOutput::Downloaded(AttachmentDownloadOut {
-                attachment_id,
-                path,
-                bytes: bytes.len(),
-            }))
-        }
-        AttachmentAction::Delete {
-            card,
-            attachment_id,
-        } => {
-            let req = client::DeleteAttachmentRequest {
-                attachment_id: attachment_id.clone(),
-            };
-            client
-                .delete_attachment(mutating_request(req, &card)?)
-                .await?;
-            Ok(AttachmentOutput::Deleted(AttachmentDeleteOut {
-                deleted: true,
-                attachment_id,
-            }))
-        }
+    let http = reqwest::Client::new();
+    let put_resp = http
+        .put(&init.presigned_url)
+        .header(reqwest::header::CONTENT_TYPE, &mime_type)
+        .body(bytes)
+        .send()
+        .await
+        .with_ctx(|| "failed to PUT attachment to presigned URL".to_string())?;
+    if !put_resp.status().is_success() {
+        let status = put_resp.status();
+        let body = put_resp.text().await.unwrap_or_default();
+        return Err(SunbeamError::Network {
+            context: format!("upload to presigned URL failed: {status} {body}"),
+            source: None,
+        });
     }
+
+    let confirm_req = client::ConfirmUploadRequest {
+        attachment_id: init.attachment_id.clone(),
+    };
+    let confirmed = client
+        .confirm_upload(mutating_request(confirm_req, card_id)?)
+        .await?;
+
+    let mut out = attachment_out(confirmed);
+    resolve_uploader_emails(std::slice::from_mut(&mut out)).await;
+    Ok(out)
+}
+
+/// Download an attachment to a local path.
+pub async fn download_attachment(
+    client: &mut dyn AttachmentService,
+    card_id: &str,
+    attachment_id: &str,
+    path: &str,
+) -> Result<AttachmentDownloadOut> {
+    let req = client::RequestPresignedDownloadRequest {
+        attachment_id: attachment_id.to_string(),
+    };
+    let dl = client
+        .request_presigned_download(client::request_with_object_id(req, card_id)?)
+        .await?;
+
+    let http = reqwest::Client::new();
+    let get_resp = http
+        .get(&dl.presigned_url)
+        .send()
+        .await
+        .with_ctx(|| "failed to GET attachment from presigned URL".to_string())?;
+    if !get_resp.status().is_success() {
+        let status = get_resp.status();
+        let body = get_resp.text().await.unwrap_or_default();
+        return Err(SunbeamError::Network {
+            context: format!("download from presigned URL failed: {status} {body}"),
+            source: None,
+        });
+    }
+    let bytes = get_resp
+        .bytes()
+        .await
+        .with_ctx(|| "failed to read attachment bytes".to_string())?;
+    tokio::fs::write(path, &bytes)
+        .await
+        .with_ctx(|| format!("failed to write attachment to {path}"))?;
+
+    Ok(AttachmentDownloadOut {
+        attachment_id: attachment_id.to_string(),
+        path: path.to_string(),
+        bytes: bytes.len(),
+    })
+}
+
+/// Delete an attachment.
+pub async fn delete_attachment(
+    client: &mut dyn AttachmentService,
+    card_id: &str,
+    attachment_id: &str,
+) -> Result<AttachmentDeleteOut> {
+    let req = client::DeleteAttachmentRequest {
+        attachment_id: attachment_id.to_string(),
+    };
+    client
+        .delete_attachment(mutating_request(req, card_id)?)
+        .await?;
+    Ok(AttachmentDeleteOut {
+        deleted: true,
+        attachment_id: attachment_id.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -464,19 +420,9 @@ mod tests {
                 })
             });
 
-        let out = run(
-            AttachmentAction::List {
-                card_id: "card_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            AttachmentOutput::List(list) => assert_eq!(list.len(), 1),
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let list = list_attachments(&mut mock, "card_1").await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "att_1");
     }
 
     #[tokio::test]
@@ -494,23 +440,11 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        let out = run(
-            AttachmentAction::Delete {
-                card: "card_1".into(),
-                attachment_id: "att_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        match out {
-            AttachmentOutput::Deleted(d) => {
-                assert!(d.deleted);
-                assert_eq!(d.attachment_id, "att_1");
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        let out = delete_attachment(&mut mock, "card_1", "att_1")
+            .await
+            .unwrap();
+        assert!(out.deleted);
+        assert_eq!(out.attachment_id, "att_1");
     }
 
     #[tokio::test]
@@ -562,17 +496,11 @@ mod tests {
         let path = tmp_dir.path().join("file.txt");
         std::fs::write(&path, b"hello world\n").unwrap();
 
-        let out = run(
-            AttachmentAction::Upload {
-                card_id: "card_1".into(),
-                file: path.to_str().unwrap().to_string(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        let out = upload_attachment(&mut mock, "card_1", path.to_str().unwrap())
+            .await
+            .unwrap();
 
-        assert!(matches!(out, AttachmentOutput::Uploaded(_)));
+        assert_eq!(out.id, "att_1");
     }
 
     #[tokio::test]
@@ -604,27 +532,15 @@ mod tests {
             });
 
         let tmp = tempfile::NamedTempFile::with_suffix(".txt").unwrap();
-        let path = tmp.path().to_str().unwrap().to_string();
+        let path = tmp.path().to_str().unwrap();
 
-        let out = run(
-            AttachmentAction::Download {
-                card: "card_1".into(),
-                attachment_id: "att_1".into(),
-                path: path.clone(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        let out = download_attachment(&mut mock, "card_1", "att_1", path)
+            .await
+            .unwrap();
 
-        match out {
-            AttachmentOutput::Downloaded(d) => {
-                assert_eq!(d.attachment_id, "att_1");
-                assert_eq!(d.path, path);
-                assert_eq!(d.bytes, 12);
-            }
-            other => panic!("unexpected output: {other:?}"),
-        }
+        assert_eq!(out.attachment_id, "att_1");
+        assert_eq!(out.path, path);
+        assert_eq!(out.bytes, 12);
     }
 
     #[tokio::test]
@@ -638,16 +554,8 @@ mod tests {
                 })
             });
 
-        let out = run(
-            AttachmentAction::List {
-                card_id: "card_1".into(),
-            },
-            &mut mock,
-        )
-        .await
-        .unwrap();
-
-        assert!(matches!(out, AttachmentOutput::List(_)));
+        let list = list_attachments(&mut mock, "card_1").await.unwrap();
+        assert_eq!(list.len(), 1);
     }
 
     #[test]
