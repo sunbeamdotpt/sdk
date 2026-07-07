@@ -3,6 +3,8 @@
 //! High-level seed/verify orchestration lives in WFE workflow primitives;
 //! this module provides the building blocks they call into.
 
+#![allow(dead_code)]
+
 use crate::error::{Result, ResultExt, SunbeamError};
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
@@ -90,17 +92,6 @@ pub(crate) fn rand_token_n(n: usize) -> String {
     let mut buf = vec![0u8; n];
     rand::thread_rng().fill_bytes(&mut buf);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf)
-}
-
-/// Generate exactly 32 random alphanumeric characters.
-/// Used for secrets that require a specific string length (e.g. kratos cipher).
-pub(crate) fn rand_string_32() -> String {
-    use rand::Rng;
-    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let mut rng = rand::thread_rng();
-    (0..32)
-        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
-        .collect()
 }
 
 // ── Port-forward helper ─────────────────────────────────────────────────────

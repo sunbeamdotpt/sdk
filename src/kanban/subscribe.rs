@@ -2,9 +2,9 @@
 
 use crate::error::{Result, ResultExt};
 use crate::kanban::client::{self, AuthChannel, BoardServiceClient, ProjectServiceClient};
+use crate::kanban::prost_struct_to_json;
 use crate::kanban::require_token;
 use crate::logger::Logger;
-use crate::wfectl::struct_util::prost_struct_to_json;
 use async_trait::async_trait;
 use clap::Subcommand;
 use futures::stream::{Stream, StreamExt, TryStreamExt};

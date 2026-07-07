@@ -3,6 +3,8 @@
 //! Services are found by querying Deployments, StatefulSets, DaemonSets, and
 //! ConfigMaps that carry the `sunbeam.pt/service` label.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 
 use crate::debug;

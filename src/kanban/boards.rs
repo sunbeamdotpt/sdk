@@ -6,10 +6,10 @@ use crate::kanban::client::{
     AddColumnRequest, CreateBoardRequest, DeleteBoardRequest, GetBoardRequest, ListBoardsRequest,
     MoveColumnRequest, RemoveColumnRequest, UpdateBoardRequest, UpdateColumnRequest,
 };
+use crate::kanban::fmt_proto_time;
 use crate::kanban::resolve;
 use crate::logger::Logger;
 use crate::output::{OutputFormat, render, render_list};
-use crate::wfectl::output::fmt_proto_time;
 use async_trait::async_trait;
 use clap::Subcommand;
 use prost_types::FieldMask;
