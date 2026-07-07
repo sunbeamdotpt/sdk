@@ -63,7 +63,6 @@ user to install it.
 │   ├── manifest_params.rs  # Runtime parameter discovery (--set) and override application
 │   ├── manifests.rs        # Kustomize build + domain substitution + namespace filtering + apply
 │   ├── openbao.rs          # OpenBao HTTP client
-│   ├── output.rs           # Table/JSON/YAML rendering helpers
 │   ├── profiles/           # Manifest profile system (shortcuts, rules, validation)
 │   ├── secrets.rs          # OpenBao init/unseal/seed, VSO secret sync, port-forward
 │   ├── vault_keystore.rs   # Vault transit keystore operations
@@ -180,16 +179,17 @@ separate topic from description:
 **Imports:** stdlib first, then crates, then `crate::` internals. Group with
 blank lines.
 
-**Output/logging:** Use `output.rs` functions — never bare `println!` for
-structured output:
+**Output/logging:** Library command functions return structured data
+(`Result<T>`) and let the caller render it. Use `tracing::info!`,
+`tracing::debug!`, etc. with structured fields for diagnostics:
 
 ```rust
-use crate::output::{step, ok, warn};
-
-step("Applying manifests");   // section header: "==> Applying manifests"
-ok("Namespace created");      // info line: "    Namespace created"
-warn("Pod not ready");        // stderr: "    WARN: Pod not ready"
+tracing::info!(msg = "Applying manifests");
+tracing::info!(msg = "Namespace created");
+tracing::warn!(msg = "Pod not ready");
 ```
+
+Never use bare `println!` / `eprintln!` for command output in SDK modules.
 
 **Error flow:** `bail!("message")` or
 `return Err(SunbeamError::Other("msg".into()))` for fatal errors. Callers
@@ -200,7 +200,7 @@ fields: `tracing::info!(msg = "...", key = %value)`.
 
 **Avoid:**
 
-- Don't add the `log` crate — use `tracing` or `output.rs` helpers.
+- Don't add the `log` crate — use `tracing` or `logger.rs` helpers.
 - Don't wrap every kube call in `match` / `if let` when `?` + `.ctx()` is
   sufficient.
 - Don't create utility modules or shared abstractions for one-off operations.
@@ -252,7 +252,7 @@ Integration tests that require real services are **not** run in CI.
 
 ## What NOT to Do
 
-- Don't add the `logging` crate. Use `tracing` or `output.rs` helpers.
+- Don't add the `logging` crate. Use `tracing` or `logger.rs` helpers.
 - Don't wrap every kube call in `match` / `if let` when `?` + `.ctx()` is
   sufficient.
 - Don't create utility modules or shared abstractions for one-off operations.

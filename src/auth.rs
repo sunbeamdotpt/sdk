@@ -6,6 +6,23 @@ use base64::Engine;
 use chrono::Utc;
 use serde::Deserialize;
 
+/// Current authentication status for the active domain.
+#[derive(Debug)]
+pub struct AuthStatus {
+    /// Domain the status applies to.
+    pub domain: String,
+    /// Whether cached tokens exist.
+    pub logged_in: bool,
+    /// Identity (email from id_token) when logged in.
+    pub identity: String,
+    /// Token expiry time when logged in.
+    pub expires_at: Option<chrono::DateTime<Utc>>,
+    /// Whether the cached access token has expired.
+    pub expired: bool,
+    /// Whether a refresh token is available.
+    pub refreshable: bool,
+}
+
 /// Hydra OAuth2 client ID for the Sunbeam CLI public client.
 ///
 /// Client registration:
@@ -176,6 +193,8 @@ async fn refresh_token(domain: &str, cached: &AuthTokens) -> Result<AuthTokens> 
 #[derive(Debug, Deserialize)]
 struct DeviceAuthorizationResponse {
     device_code: String,
+    /// Display code shown to the user during device authorization.
+    #[allow(dead_code)]
     user_code: String,
     verification_uri: String,
     #[serde(default)]
@@ -318,9 +337,10 @@ async fn poll_device_token(
 
 /// Device login — OAuth2 Device Authorization Grant.
 ///
-/// Prints a user code and verification URL, then polls the token endpoint until
-/// the user authorizes the device. Tokens are cached so `sunbeam auth token`
-/// and `crate::auth::get_token()` work identically for upstream API calls.
+/// Obtains a device code, opens the verification URL in the default browser,
+/// then polls the token endpoint until the user authorizes the device. Tokens
+/// are cached so `sunbeam auth token` and `crate::auth::get_token()` work
+/// identically for upstream API calls.
 #[tracing::instrument(skip(domain_override))]
 pub async fn cmd_auth_login(domain_override: Option<&str>) -> Result<()> {
     tracing::info!("Authenticating with Hydra via device code");
@@ -340,12 +360,6 @@ pub async fn cmd_auth_login(domain_override: Option<&str>) -> Result<()> {
         Ok(r) => r,
         Err(e) => return Err(e),
     };
-
-    println!("\n    Device code: {}\n", device_resp.user_code);
-    println!(
-        "    Open this URL in your browser: {}\n",
-        device_resp.verification_uri
-    );
 
     // Try to open the browser using the complete URI when available.
     let browser_url = device_resp
@@ -659,17 +673,14 @@ pub async fn get_token() -> Result<String> {
     ))
 }
 
-/// Print the current access token as a JSON headers object.
-/// Designed for use as a Claude Code MCP `headersHelper`.
-/// Output: {"Authorization": "Bearer <token>"}
+/// Return the current access token.
+///
+/// Refreshes the token automatically if it is within 60 seconds of expiry and
+/// a refresh token is cached. Returns an error prompting for login when no
+/// cached tokens exist.
 #[tracing::instrument]
-pub async fn cmd_auth_token() -> Result<()> {
-    let token = match get_token().await {
-        Ok(t) => t,
-        Err(e) => return Err(e),
-    };
-    println!("{{\"Authorization\": \"Bearer {token}\"}}");
-    Ok(())
+pub async fn cmd_auth_token() -> Result<String> {
+    get_token().await
 }
 
 /// Remove cached auth tokens.
@@ -693,9 +704,9 @@ pub async fn cmd_auth_logout() -> Result<()> {
     Ok(())
 }
 
-/// Print current auth status.
+/// Return current auth status for the active domain.
 #[tracing::instrument]
-pub async fn cmd_auth_status() -> Result<()> {
+pub async fn cmd_auth_status() -> Result<AuthStatus> {
     let domain = crate::config::domain();
     if domain.is_empty() {
         return Err(SunbeamError::config(
@@ -707,35 +718,30 @@ pub async fn cmd_auth_status() -> Result<()> {
         Some(tokens) => {
             let now = Utc::now();
             let expired = tokens.expires_at <= now;
-
-            // Try to get email from id_token
             let identity = tokens
                 .id_token
                 .as_deref()
                 .and_then(extract_email)
                 .unwrap_or_else(|| "unknown".to_string());
 
-            if expired {
-                tracing::info!(
-                    "Logged in as {identity} (token expired at {})",
-                    tokens.expires_at.format("%Y-%m-%d %H:%M:%S UTC")
-                );
-                if !tokens.refresh_token.is_empty() {
-                    tracing::info!("Token can be refreshed automatically on next use");
-                }
-            } else {
-                tracing::info!(
-                    "Logged in as {identity} (token valid until {})",
-                    tokens.expires_at.format("%Y-%m-%d %H:%M:%S UTC")
-                );
-            }
-            tracing::info!("Domain: {domain}");
+            Ok(AuthStatus {
+                domain: domain.to_string(),
+                logged_in: true,
+                identity,
+                expires_at: Some(tokens.expires_at),
+                expired,
+                refreshable: !tokens.refresh_token.is_empty(),
+            })
         }
-        None => {
-            tracing::info!("Not logged in. Run `sunbeam auth login` to authenticate.");
-        }
+        None => Ok(AuthStatus {
+            domain: domain.to_string(),
+            logged_in: false,
+            identity: String::new(),
+            expires_at: None,
+            expired: false,
+            refreshable: false,
+        }),
     }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

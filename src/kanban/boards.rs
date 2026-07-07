@@ -9,7 +9,6 @@ use crate::kanban::client::{
 use crate::kanban::fmt_proto_time;
 use crate::kanban::resolve;
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render, render_list};
 use async_trait::async_trait;
 use clap::Subcommand;
 use prost_types::FieldMask;
@@ -155,18 +154,28 @@ pub enum ColumnAction {
 }
 
 /// Serializable board for output.
-#[derive(Serialize)]
-struct BoardOut {
-    id: String,
-    project_id: String,
-    name: String,
-    description: String,
-    icon: String,
-    created_at: String,
-    updated_at: String,
-    columns_count: i32,
-    cards_count: i32,
-    visibility: String,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct BoardOut {
+    /// Board ID.
+    pub id: String,
+    /// Project ID.
+    pub project_id: String,
+    /// Board name.
+    pub name: String,
+    /// Board description.
+    pub description: String,
+    /// Icon identifier.
+    pub icon: String,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Last update timestamp.
+    pub updated_at: String,
+    /// Number of columns.
+    pub columns_count: i32,
+    /// Number of cards.
+    pub cards_count: i32,
+    /// Visibility label.
+    pub visibility: String,
 }
 
 impl From<client::Board> for BoardOut {
@@ -195,16 +204,24 @@ impl From<client::Board> for BoardOut {
 }
 
 /// Serializable column for output.
-#[derive(Serialize)]
-struct ColumnOut {
-    id: String,
-    board_id: String,
-    title: String,
-    accent: String,
-    wip_limit: i32,
-    position: i32,
-    created_at: String,
-    updated_at: String,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ColumnOut {
+    /// Column ID.
+    pub id: String,
+    /// Board ID.
+    pub board_id: String,
+    /// Column title.
+    pub title: String,
+    /// Accent color.
+    pub accent: String,
+    /// WIP limit.
+    pub wip_limit: i32,
+    /// Position.
+    pub position: i32,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Last update timestamp.
+    pub updated_at: String,
 }
 
 impl From<client::Column> for ColumnOut {
@@ -231,11 +248,53 @@ impl From<client::Column> for ColumnOut {
 }
 
 /// Serializable board detail for output.
-#[derive(Serialize)]
-struct BoardDetailOut {
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct BoardDetailOut {
+    /// Board summary.
     #[serde(flatten)]
-    board: BoardOut,
-    columns: Vec<ColumnOut>,
+    pub board: BoardOut,
+    /// Columns on the board.
+    pub columns: Vec<ColumnOut>,
+}
+
+/// Board deletion confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct BoardDeleteOut {
+    /// Whether the deletion succeeded.
+    pub deleted: bool,
+    /// Deleted board ID.
+    pub board_id: String,
+}
+
+/// Column removal confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ColumnRemoveOut {
+    /// Whether the removal succeeded.
+    pub removed: bool,
+    /// Board ID.
+    pub board_id: String,
+    /// Removed column ID.
+    pub column_id: String,
+}
+
+/// Result of running a board command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum BoardOutput {
+    /// List of boards.
+    List(Vec<BoardOut>),
+    /// Board detail.
+    Detail(BoardDetailOut),
+    /// Single board.
+    Board(BoardOut),
+    /// Deletion confirmation.
+    Deleted(BoardDeleteOut),
+    /// Single column.
+    Column(ColumnOut),
+    /// List of columns.
+    ColumnList(Vec<ColumnOut>),
+    /// Column removal confirmation.
+    ColumnRemoved(ColumnRemoveOut),
 }
 
 fn board_visibility_name(v: i32) -> String {
@@ -431,12 +490,8 @@ async fn resolve_column_id(
     resolve::unique_match(matches, "column", raw)
 }
 
-/// Run a board command.
-pub async fn run(
-    cmd: BoardAction,
-    format: OutputFormat,
-    client: &mut dyn BoardService,
-) -> Result<()> {
+/// Run a board command and return the result data.
+pub async fn run(cmd: BoardAction, client: &mut dyn BoardService) -> Result<BoardOutput> {
     match cmd {
         BoardAction::List { project } => {
             let resp = client
@@ -446,21 +501,7 @@ pub async fn run(
                 .await
                 .with_ctx(|| "list boards failed".to_string())?;
             let boards: Vec<BoardOut> = resp.boards.into_iter().map(Into::into).collect();
-            render_list(
-                &boards,
-                &["NAME", "VISIBILITY", "COLUMNS", "CARDS", "PROJECT ID", "ID"],
-                |b| {
-                    vec![
-                        b.name.clone(),
-                        b.visibility.clone(),
-                        b.columns_count.to_string(),
-                        b.cards_count.to_string(),
-                        b.project_id.clone(),
-                        b.id.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(BoardOutput::List(boards))
         }
         BoardAction::Get { board_id } => {
             let resp = client
@@ -469,24 +510,21 @@ pub async fn run(
                 }))
                 .await
                 .with_ctx(|| "get board failed".to_string())?;
-            render(
-                &BoardDetailOut {
-                    board: resp.board.map(BoardOut::from).unwrap_or(BoardOut {
-                        id: board_id,
-                        project_id: String::new(),
-                        name: String::new(),
-                        description: String::new(),
-                        icon: String::new(),
-                        created_at: String::new(),
-                        updated_at: String::new(),
-                        columns_count: 0,
-                        cards_count: 0,
-                        visibility: String::new(),
-                    }),
-                    columns: resp.columns.into_iter().map(Into::into).collect(),
-                },
-                format,
-            )
+            Ok(BoardOutput::Detail(BoardDetailOut {
+                board: resp.board.map(BoardOut::from).unwrap_or(BoardOut {
+                    id: board_id,
+                    project_id: String::new(),
+                    name: String::new(),
+                    description: String::new(),
+                    icon: String::new(),
+                    created_at: String::new(),
+                    updated_at: String::new(),
+                    columns_count: 0,
+                    cards_count: 0,
+                    visibility: String::new(),
+                }),
+                columns: resp.columns.into_iter().map(Into::into).collect(),
+            }))
         }
         BoardAction::Create {
             project,
@@ -508,7 +546,7 @@ pub async fn run(
                 .create_board(req)
                 .await
                 .with_ctx(|| "create board failed".to_string())?;
-            render(&BoardOut::from(resp), format)
+            Ok(BoardOutput::Board(BoardOut::from(resp)))
         }
         BoardAction::Update {
             board_id,
@@ -547,7 +585,7 @@ pub async fn run(
                 .update_board(req)
                 .await
                 .with_ctx(|| "update board failed".to_string())?;
-            render(&BoardOut::from(resp), format)
+            Ok(BoardOutput::Board(BoardOut::from(resp)))
         }
         BoardAction::Delete { board_id } => {
             let req = crate::kanban::client::request_with_object_id(
@@ -560,10 +598,10 @@ pub async fn run(
                 .delete_board(req)
                 .await
                 .with_ctx(|| "delete board failed".to_string())?;
-            render(
-                &serde_json::json!({"deleted": true, "board_id": board_id}),
-                format,
-            )
+            Ok(BoardOutput::Deleted(BoardDeleteOut {
+                deleted: true,
+                board_id,
+            }))
         }
         BoardAction::Column { action } => match action {
             ColumnAction::Add {
@@ -586,7 +624,7 @@ pub async fn run(
                     .add_column(req)
                     .await
                     .with_ctx(|| "add column failed".to_string())?;
-                render(&ColumnOut::from(resp), format)
+                Ok(BoardOutput::Column(ColumnOut::from(resp)))
             }
             ColumnAction::Update {
                 board_id,
@@ -624,7 +662,7 @@ pub async fn run(
                     .update_column(req)
                     .await
                     .with_ctx(|| "update column failed".to_string())?;
-                render(&ColumnOut::from(resp), format)
+                Ok(BoardOutput::Column(ColumnOut::from(resp)))
             }
             ColumnAction::Remove {
                 board_id,
@@ -642,14 +680,11 @@ pub async fn run(
                     .remove_column(req)
                     .await
                     .with_ctx(|| "remove column failed".to_string())?;
-                render(
-                    &serde_json::json!({
-                        "removed": true,
-                        "board_id": board_id,
-                        "column_id": column_id,
-                    }),
-                    format,
-                )
+                Ok(BoardOutput::ColumnRemoved(ColumnRemoveOut {
+                    removed: true,
+                    board_id,
+                    column_id,
+                }))
             }
             ColumnAction::Move {
                 board_id,
@@ -670,19 +705,7 @@ pub async fn run(
                     .await
                     .with_ctx(|| "move column failed".to_string())?;
                 let columns: Vec<ColumnOut> = resp.columns.into_iter().map(Into::into).collect();
-                render_list(
-                    &columns,
-                    &["TITLE", "POSITION", "WIP LIMIT", "ID"],
-                    |c| {
-                        vec![
-                            c.title.clone(),
-                            c.position.to_string(),
-                            c.wip_limit.to_string(),
-                            c.id.clone(),
-                        ]
-                    },
-                    format,
-                )
+                Ok(BoardOutput::ColumnList(columns))
             }
         },
     }
@@ -734,7 +757,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_renders_boards() {
+    async fn list_returns_boards() {
         let mut mock = MockBoardService::new();
         mock.expect_list_boards()
             .withf(|req| req.get_ref().project_id == "proj_1")
@@ -745,19 +768,26 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             BoardAction::List {
                 project: "proj_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            BoardOutput::List(boards) => {
+                assert_eq!(boards.len(), 1);
+                assert_eq!(boards[0].id, "board_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn get_renders_board_detail() {
+    async fn get_returns_board_detail() {
         let mut mock = MockBoardService::new();
         mock.expect_get_board()
             .withf(|req| req.get_ref().board_id == "board_1")
@@ -769,19 +799,26 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             BoardAction::Get {
                 board_id: "board_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            BoardOutput::Detail(d) => {
+                assert_eq!(d.board.id, "board_1");
+                assert_eq!(d.columns.len(), 1);
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn create_renders_new_board() {
+    async fn create_returns_new_board() {
         let mut mock = MockBoardService::new();
         mock.expect_create_board()
             .withf(|req| {
@@ -793,7 +830,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_board("board_new")));
 
-        run(
+        let out = run(
             BoardAction::Create {
                 project: "proj_1".into(),
                 name: "Roadmap".into(),
@@ -801,15 +838,16 @@ mod tests {
                 icon: None,
                 visibility: VisibilityArg::Internal,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn update_renders_updated_board() {
+    async fn update_returns_updated_board() {
         let mut mock = MockBoardService::new();
         mock.expect_update_board()
             .withf(|req| {
@@ -836,7 +874,7 @@ mod tests {
                 Ok(b)
             });
 
-        run(
+        let out = run(
             BoardAction::Update {
                 board_id: "board_1".into(),
                 name: Some("Renamed".into()),
@@ -844,11 +882,15 @@ mod tests {
                 icon: None,
                 visibility: None,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            BoardOutput::Board(b) => assert_eq!(b.name, "Renamed"),
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -859,19 +901,26 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             BoardAction::Delete {
                 board_id: "board_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            BoardOutput::Deleted(d) => {
+                assert!(d.deleted);
+                assert_eq!(d.board_id, "board_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn column_add_renders_column() {
+    async fn column_add_returns_column() {
         let mut mock = MockBoardService::new();
         mock.expect_add_column()
             .withf(|req| {
@@ -881,7 +930,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_column("col_new", "board_1", 2)));
 
-        run(
+        let out = run(
             BoardAction::Column {
                 action: ColumnAction::Add {
                     board_id: "board_1".into(),
@@ -891,15 +940,16 @@ mod tests {
                     position: None,
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::Column(_)));
     }
 
     #[tokio::test]
-    async fn column_update_renders_column() {
+    async fn column_update_returns_column() {
         let mut mock = MockBoardService::new();
         mock.expect_update_column()
             .withf(|req| {
@@ -918,7 +968,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_column("col_1", "board_1", 1)));
 
-        run(
+        let out = run(
             BoardAction::Column {
                 action: ColumnAction::Update {
                     board_id: "board_1".into(),
@@ -928,11 +978,12 @@ mod tests {
                     wip_limit: None,
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::Column(_)));
     }
 
     #[tokio::test]
@@ -946,22 +997,29 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             BoardAction::Column {
                 action: ColumnAction::Remove {
                     board_id: "board_1".into(),
                     column_id: "col_1".into(),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            BoardOutput::ColumnRemoved(r) => {
+                assert!(r.removed);
+                assert_eq!(r.column_id, "col_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn column_move_renders_columns() {
+    async fn column_move_returns_columns() {
         let mut mock = MockBoardService::new();
         mock.expect_move_column()
             .withf(|req| {
@@ -978,7 +1036,7 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             BoardAction::Column {
                 action: ColumnAction::Move {
                     board_id: "board_1".into(),
@@ -986,15 +1044,19 @@ mod tests {
                     position: 2,
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            BoardOutput::ColumnList(cols) => assert_eq!(cols.len(), 2),
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn list_boards_table_renders() {
+    async fn list_boards_returns_data() {
         let mut mock = MockBoardService::new();
         mock.expect_list_boards().times(1).returning(|_| {
             Ok(client::ListBoardsResponse {
@@ -1002,40 +1064,20 @@ mod tests {
             })
         });
 
-        run(
+        let out = run(
             BoardAction::List {
                 project: "proj_1".into(),
             },
-            OutputFormat::Table,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::List(_)));
     }
 
     #[tokio::test]
-    async fn get_board_without_board_uses_default() {
-        let mut mock = MockBoardService::new();
-        mock.expect_get_board().times(1).returning(|_| {
-            Ok(client::BoardDetail {
-                board: None,
-                columns: vec![sample_column("col_1", "board_1", 1)],
-            })
-        });
-
-        run(
-            BoardAction::Get {
-                board_id: "board_1".into(),
-            },
-            OutputFormat::Json,
-            &mut mock,
-        )
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn create_board_with_all_options_renders() {
+    async fn create_board_with_all_options_returns() {
         let mut mock = MockBoardService::new();
         mock.expect_create_board()
             .withf(|req| {
@@ -1050,7 +1092,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_board("board_new")));
 
-        run(
+        let out = run(
             BoardAction::Create {
                 project: "proj_1".into(),
                 name: "N".into(),
@@ -1058,15 +1100,16 @@ mod tests {
                 icon: Some("I".into()),
                 visibility: VisibilityArg::Public,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn update_board_with_all_options_renders() {
+    async fn update_board_with_all_options_returns() {
         let mut mock = MockBoardService::new();
         mock.expect_update_board()
             .withf(|req| {
@@ -1083,7 +1126,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_board("board_1")));
 
-        run(
+        let out = run(
             BoardAction::Update {
                 board_id: "board_1".into(),
                 name: Some("N".into()),
@@ -1091,15 +1134,16 @@ mod tests {
                 icon: Some("I".into()),
                 visibility: Some(VisibilityArg::Internal),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn column_add_with_all_options_renders() {
+    async fn column_add_with_all_options_returns() {
         let mut mock = MockBoardService::new();
         mock.expect_add_column()
             .withf(|req| {
@@ -1114,7 +1158,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_column("col_new", "board_1", 3)));
 
-        run(
+        let out = run(
             BoardAction::Column {
                 action: ColumnAction::Add {
                     board_id: "board_1".into(),
@@ -1124,15 +1168,16 @@ mod tests {
                     position: Some(3),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::Column(_)));
     }
 
     #[tokio::test]
-    async fn column_update_with_all_options_renders() {
+    async fn column_update_with_all_options_returns() {
         let mut mock = MockBoardService::new();
         mock.expect_update_column()
             .withf(|req| {
@@ -1143,7 +1188,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_column("col_1", "board_1", 1)));
 
-        run(
+        let out = run(
             BoardAction::Column {
                 action: ColumnAction::Update {
                     board_id: "board_1".into(),
@@ -1153,11 +1198,12 @@ mod tests {
                     wip_limit: Some(5),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::Column(_)));
     }
 
     #[test]
@@ -1194,7 +1240,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_column("col_1", "board_1", 1)));
 
-        run(
+        let out = run(
             BoardAction::Column {
                 action: ColumnAction::Update {
                     board_id: "board_1".into(),
@@ -1204,11 +1250,12 @@ mod tests {
                     wip_limit: None,
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, BoardOutput::Column(_)));
     }
 
     #[tokio::test]

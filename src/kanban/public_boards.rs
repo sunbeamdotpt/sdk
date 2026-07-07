@@ -3,7 +3,6 @@
 use crate::error::Result;
 use crate::kanban::client::{self, PublicBoardServiceClient};
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render, render_list};
 use async_trait::async_trait;
 use clap::Subcommand;
 use serde::Serialize;
@@ -24,16 +23,24 @@ pub enum PublicBoardAction {
 }
 
 /// Serializable subset of a public board for CLI output.
-#[derive(Serialize)]
-struct BoardOut {
-    id: String,
-    project_id: String,
-    name: String,
-    description: String,
-    icon: String,
-    columns_count: i32,
-    cards_count: i32,
-    visibility: String,
+#[derive(Debug, Serialize)]
+pub struct BoardOut {
+    /// Board ID.
+    pub id: String,
+    /// Project ID.
+    pub project_id: String,
+    /// Board name.
+    pub name: String,
+    /// Board description.
+    pub description: String,
+    /// Board icon.
+    pub icon: String,
+    /// Number of columns.
+    pub columns_count: i32,
+    /// Number of cards.
+    pub cards_count: i32,
+    /// Visibility label.
+    pub visibility: String,
 }
 
 fn visibility_str(value: i32) -> String {
@@ -56,6 +63,15 @@ fn board_to_out(board: &client::Board) -> BoardOut {
         cards_count: board.cards_count,
         visibility: visibility_str(board.visibility),
     }
+}
+
+/// Output of a public board command.
+#[derive(Debug, Serialize)]
+pub enum PublicBoardOutput {
+    /// Single public board.
+    Get(BoardOut),
+    /// List of public boards.
+    List(Vec<BoardOut>),
 }
 
 /// Trait abstracting the Kanban public board service for testability.
@@ -120,34 +136,19 @@ pub async fn build_client(
 /// Run a public board command using the provided service client.
 pub async fn run_with_client(
     cmd: PublicBoardAction,
-    format: OutputFormat,
     client: &mut dyn PublicBoardService,
-) -> Result<()> {
+) -> Result<PublicBoardOutput> {
     match cmd {
         PublicBoardAction::Get { board_id } => {
             let req = client::GetPublicBoardRequest { board_id };
             let resp = client.get_public_board(req).await?;
-            render(&board_to_out(&resp), format)
+            Ok(PublicBoardOutput::Get(board_to_out(&resp)))
         }
         PublicBoardAction::List { project_id } => {
             let req = client::ListPublicBoardsRequest { project_id };
             let resp = client.list_public_boards(req).await?;
             let boards: Vec<_> = resp.boards.iter().map(board_to_out).collect();
-            render_list(
-                &boards,
-                &["NAME", "COLUMNS", "CARDS", "VISIBILITY", "PROJECT", "ID"],
-                |b| {
-                    vec![
-                        b.name.clone(),
-                        b.columns_count.to_string(),
-                        b.cards_count.to_string(),
-                        b.visibility.clone(),
-                        b.project_id.clone(),
-                        b.id.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(PublicBoardOutput::List(boards))
         }
     }
 }
@@ -157,10 +158,9 @@ pub async fn run(
     logger: &Logger,
     cmd: PublicBoardAction,
     server: &str,
-    format: OutputFormat,
-) -> Result<()> {
+) -> Result<PublicBoardOutput> {
     let mut client = build_client(logger, server).await?;
-    run_with_client(cmd, format, &mut client).await
+    run_with_client(cmd, &mut client).await
 }
 
 #[cfg(test)]
@@ -189,26 +189,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_public_board_renders() {
+    async fn get_public_board_returns_board() {
         let mut mock = MockPublicBoardService::new();
         mock.expect_get_public_board()
             .withf(|req| req.board_id == "board_123")
             .times(1)
             .returning(|_| Ok(sample_board("board_123", "proj_123", 3)));
 
-        run_with_client(
+        let output = run_with_client(
             PublicBoardAction::Get {
                 board_id: "board_123".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        let board = match output {
+            PublicBoardOutput::Get(b) => b,
+            other => panic!("expected Get output, got {other:?}"),
+        };
+        assert_eq!(board.id, "board_123");
+        assert_eq!(board.visibility, "public");
     }
 
     #[tokio::test]
-    async fn list_public_boards_renders() {
+    async fn list_public_boards_returns_boards() {
         let mut mock = MockPublicBoardService::new();
         mock.expect_list_public_boards()
             .withf(|req| req.project_id == "proj_123")
@@ -219,19 +225,26 @@ mod tests {
                 })
             });
 
-        run_with_client(
+        let output = run_with_client(
             PublicBoardAction::List {
                 project_id: "proj_123".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        let boards = match output {
+            PublicBoardOutput::List(b) => b,
+            other => panic!("expected List output, got {other:?}"),
+        };
+        assert_eq!(boards.len(), 1);
+        assert_eq!(boards[0].id, "board_1");
+        assert_eq!(boards[0].visibility, "public");
     }
 
     #[tokio::test]
-    async fn list_public_boards_table_renders() {
+    async fn list_public_boards_visibility_variants() {
         let mut mock = MockPublicBoardService::new();
         mock.expect_list_public_boards().times(1).returning(|_| {
             Ok(client::ListBoardsResponse {
@@ -243,15 +256,23 @@ mod tests {
             })
         });
 
-        run_with_client(
+        let output = run_with_client(
             PublicBoardAction::List {
                 project_id: "p1".into(),
             },
-            OutputFormat::Table,
             &mut mock,
         )
         .await
         .unwrap();
+
+        let boards = match output {
+            PublicBoardOutput::List(b) => b,
+            other => panic!("expected List output, got {other:?}"),
+        };
+        assert_eq!(boards.len(), 3);
+        assert_eq!(boards[0].visibility, "private");
+        assert_eq!(boards[1].visibility, "internal");
+        assert_eq!(boards[2].visibility, "unspecified");
     }
 
     #[test]
@@ -264,24 +285,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_public_board_table_renders() {
-        let mut mock = MockPublicBoardService::new();
-        mock.expect_get_public_board()
-            .times(1)
-            .returning(|_| Ok(sample_board("board_123", "proj_123", 3)));
-
-        run_with_client(
-            PublicBoardAction::Get {
-                board_id: "board_123".into(),
-            },
-            OutputFormat::Table,
-            &mut mock,
-        )
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
     async fn run_rejects_invalid_url() {
         let logger = crate::logger::Logger::new(crate::logger::NoopSink);
         let err = run(
@@ -290,7 +293,6 @@ mod tests {
                 board_id: "board_123".into(),
             },
             ":::not-a-url",
-            OutputFormat::Json,
         )
         .await
         .unwrap_err();

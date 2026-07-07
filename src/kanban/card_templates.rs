@@ -9,7 +9,6 @@ use crate::kanban::client::{
 };
 use crate::kanban::resolve;
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render, render_list};
 use async_trait::async_trait;
 use clap::Subcommand;
 use prost_types::Timestamp;
@@ -56,25 +55,37 @@ pub enum CardTemplateAction {
 }
 
 /// Serializable checklist item for output.
-#[derive(Serialize)]
-struct TemplateChecklistItemOut {
-    title: String,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct TemplateChecklistItemOut {
+    /// Item title.
+    pub title: String,
 }
 
 /// Serializable card template for output.
-#[derive(Serialize)]
-struct CardTemplateOut {
-    id: String,
-    project_id: String,
-    name: String,
-    description: String,
-    title: String,
-    default_description: String,
-    label_names: Vec<String>,
-    checklist_items: Vec<TemplateChecklistItemOut>,
-    is_global: bool,
-    created_at: Option<String>,
-    updated_at: Option<String>,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardTemplateOut {
+    /// Template ID.
+    pub id: String,
+    /// Project ID.
+    pub project_id: String,
+    /// Template name.
+    pub name: String,
+    /// Template description.
+    pub description: String,
+    /// Default card title.
+    pub title: String,
+    /// Default card description.
+    pub default_description: String,
+    /// Label names.
+    pub label_names: Vec<String>,
+    /// Checklist items.
+    pub checklist_items: Vec<TemplateChecklistItemOut>,
+    /// Whether the template is global.
+    pub is_global: bool,
+    /// Creation timestamp.
+    pub created_at: Option<String>,
+    /// Last update timestamp.
+    pub updated_at: Option<String>,
 }
 
 impl From<&ProtoTemplateChecklistItem> for TemplateChecklistItemOut {
@@ -101,6 +112,28 @@ impl From<&ProtoCardTemplate> for CardTemplateOut {
             updated_at: format_timestamp(t.updated_at.as_ref()),
         }
     }
+}
+
+/// Card template deletion confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardTemplateDeleteOut {
+    /// Whether the deletion succeeded.
+    pub deleted: bool,
+    /// Deleted template ID.
+    pub template_id: String,
+}
+
+/// Result of running a card template command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
+pub enum CardTemplateOutput {
+    /// List of card templates.
+    List(Vec<CardTemplateOut>),
+    /// Single card template.
+    Template(CardTemplateOut),
+    /// Deletion confirmation.
+    Deleted(CardTemplateDeleteOut),
 }
 
 /// Format a Prost Timestamp as an RFC 3339 string.
@@ -226,12 +259,11 @@ pub async fn build_client(
     ))
 }
 
-/// Run a card template command.
+/// Run a card template command and return the result data.
 pub async fn run(
     cmd: CardTemplateAction,
-    format: OutputFormat,
     client: &mut dyn CardTemplateService,
-) -> Result<()> {
+) -> Result<CardTemplateOutput> {
     match cmd {
         CardTemplateAction::List { project } => {
             let req = ListCardTemplatesRequest {
@@ -239,30 +271,7 @@ pub async fn run(
             };
             let resp = client.list_card_templates(req).await?;
             let templates: Vec<CardTemplateOut> = resp.templates.iter().map(|t| t.into()).collect();
-            render_list(
-                &templates,
-                &[
-                    "NAME",
-                    "TITLE",
-                    "GLOBAL",
-                    "LABELS",
-                    "CHECKLIST",
-                    "PROJECT",
-                    "ID",
-                ],
-                |t| {
-                    vec![
-                        t.name.clone(),
-                        t.title.clone(),
-                        t.is_global.to_string(),
-                        t.label_names.len().to_string(),
-                        t.checklist_items.len().to_string(),
-                        t.project_id.clone(),
-                        t.id.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(CardTemplateOutput::List(templates))
         }
         CardTemplateAction::Get { template_id } => {
             let template_id = resolve::resolve_card_template_id(client, None, &template_id).await?;
@@ -270,7 +279,7 @@ pub async fn run(
                 template_id: template_id.clone(),
             };
             let resp = client.get_card_template(req).await?;
-            render(&CardTemplateOut::from(&resp), format)
+            Ok(CardTemplateOutput::Template(CardTemplateOut::from(&resp)))
         }
         CardTemplateAction::Create { project, name } => {
             let object_id = project.clone().unwrap_or_else(|| "global".to_string());
@@ -287,7 +296,7 @@ pub async fn run(
                 &object_id,
             )?;
             let resp = client.create_card_template(req).await?;
-            render(&CardTemplateOut::from(&resp), format)
+            Ok(CardTemplateOutput::Template(CardTemplateOut::from(&resp)))
         }
         CardTemplateAction::Update { template_id, name } => {
             let template_id = resolve::resolve_card_template_id(client, None, &template_id).await?;
@@ -309,7 +318,7 @@ pub async fn run(
                 &template_id,
             )?;
             let resp = client.update_card_template(req).await?;
-            render(&CardTemplateOut::from(&resp), format)
+            Ok(CardTemplateOutput::Template(CardTemplateOut::from(&resp)))
         }
         CardTemplateAction::Delete { template_id } => {
             let template_id = resolve::resolve_card_template_id(client, None, &template_id).await?;
@@ -320,7 +329,10 @@ pub async fn run(
                 &template_id,
             )?;
             client.delete_card_template(req).await?;
-            render(&serde_json::json!({ "deleted": template_id }), format)
+            Ok(CardTemplateOutput::Deleted(CardTemplateDeleteOut {
+                deleted: true,
+                template_id,
+            }))
         }
     }
 }
@@ -328,7 +340,6 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::OutputFormat;
 
     fn card_template_fixture() -> client::CardTemplate {
         client::CardTemplate {
@@ -355,7 +366,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_renders_card_templates() {
+    async fn list_returns_card_templates() {
         let mut mock = MockCardTemplateService::new();
         mock.expect_list_card_templates()
             .withf(|req| req.project_id == "proj_1")
@@ -366,38 +377,43 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             CardTemplateAction::List {
                 project: Some("proj_1".into()),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            CardTemplateOutput::List(t) => assert_eq!(t.len(), 1),
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn get_renders_card_template() {
+    async fn get_returns_card_template() {
         let mut mock = MockCardTemplateService::new();
         mock.expect_get_card_template()
             .withf(|req| req.template_id == "ctmpl_1")
             .times(1)
             .returning(|_| Ok(card_template_fixture()));
 
-        run(
+        let out = run(
             CardTemplateAction::Get {
                 template_id: "ctmpl_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardTemplateOutput::Template(_)));
     }
 
     #[tokio::test]
-    async fn create_renders_card_template() {
+    async fn create_returns_card_template() {
         let mut mock = MockCardTemplateService::new();
         mock.expect_create_card_template()
             .withf(|req| {
@@ -407,20 +423,21 @@ mod tests {
             .times(1)
             .returning(|_| Ok(card_template_fixture()));
 
-        run(
+        let out = run(
             CardTemplateAction::Create {
                 project: Some("proj_1".into()),
                 name: "Bug".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardTemplateOutput::Template(_)));
     }
 
     #[tokio::test]
-    async fn update_renders_card_template() {
+    async fn update_returns_card_template() {
         let mut mock = MockCardTemplateService::new();
         mock.expect_update_card_template()
             .withf(|req| {
@@ -430,39 +447,47 @@ mod tests {
             .times(1)
             .returning(|_| Ok(card_template_fixture()));
 
-        run(
+        let out = run(
             CardTemplateAction::Update {
                 template_id: "ctmpl_1".into(),
                 name: Some("Renamed".into()),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardTemplateOutput::Template(_)));
     }
 
     #[tokio::test]
-    async fn delete_renders_confirmation() {
+    async fn delete_returns_confirmation() {
         let mut mock = MockCardTemplateService::new();
         mock.expect_delete_card_template()
             .withf(|req| req.get_ref().template_id == "ctmpl_1")
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             CardTemplateAction::Delete {
                 template_id: "ctmpl_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            CardTemplateOutput::Deleted(d) => {
+                assert!(d.deleted);
+                assert_eq!(d.template_id, "ctmpl_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn list_global_card_templates_renders() {
+    async fn list_global_card_templates_returns() {
         let mut mock = MockCardTemplateService::new();
         mock.expect_list_card_templates()
             .withf(|req| req.project_id.is_empty())
@@ -473,37 +498,15 @@ mod tests {
                 })
             });
 
-        run(
-            CardTemplateAction::List { project: None },
-            OutputFormat::Json,
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        let out = run(CardTemplateAction::List { project: None }, &mut mock)
+            .await
+            .unwrap();
+
+        assert!(matches!(out, CardTemplateOutput::List(_)));
     }
 
     #[tokio::test]
-    async fn list_card_templates_table_renders() {
-        let mut mock = MockCardTemplateService::new();
-        mock.expect_list_card_templates().times(1).returning(|_| {
-            Ok(client::ListCardTemplatesResponse {
-                templates: vec![card_template_fixture()],
-            })
-        });
-
-        run(
-            CardTemplateAction::List {
-                project: Some("proj_1".into()),
-            },
-            OutputFormat::Table,
-            &mut mock,
-        )
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn create_global_card_template_renders() {
+    async fn create_global_card_template_returns() {
         let mut mock = MockCardTemplateService::new();
         mock.expect_create_card_template()
             .withf(|req| {
@@ -513,16 +516,17 @@ mod tests {
             .times(1)
             .returning(|_| Ok(card_template_fixture()));
 
-        run(
+        let out = run(
             CardTemplateAction::Create {
                 project: None,
                 name: "Global".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardTemplateOutput::Template(_)));
     }
 
     #[test]
@@ -550,15 +554,16 @@ mod tests {
             .times(1)
             .returning(|_| Ok(card_template_fixture()));
 
-        run(
+        let out = run(
             CardTemplateAction::Get {
                 template_id: "Bug".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardTemplateOutput::Template(_)));
     }
 
     #[tokio::test]

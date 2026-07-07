@@ -3,7 +3,6 @@
 use crate::error::{Result, ResultExt, SunbeamError};
 use crate::kanban::client::{self, GithubLinkServiceClient};
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render, render_list};
 
 use async_trait::async_trait;
 use clap::Subcommand;
@@ -53,31 +52,71 @@ pub enum GitHubAction {
     },
 }
 
+/// Result of running a GitHub link command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum GitHubLinkOutput {
+    /// New or refreshed link detail.
+    Linked(GitHubLinkDetailOut),
+    /// Unlink confirmation.
+    Unlinked(GitHubLinkUnlinkOut),
+    /// List of links for a card.
+    Listed(Vec<GitHubLinkDetailOut>),
+    /// Issue search results.
+    Searched(Vec<GitHubIssueResultOut>),
+}
+
 /// Serializable GitHub link detail record.
-#[derive(Serialize)]
-struct GitHubLinkDetailOut {
-    id: String,
-    card_id: String,
-    repo_owner: String,
-    repo_name: String,
-    issue_or_pr_number: i32,
-    kind: String,
-    title: String,
-    state: String,
-    url: String,
-    last_synced_at: Option<String>,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GitHubLinkDetailOut {
+    /// Link ID.
+    pub id: String,
+    /// Card ID.
+    pub card_id: String,
+    /// Repository owner.
+    pub repo_owner: String,
+    /// Repository name.
+    pub repo_name: String,
+    /// Issue or PR number.
+    pub issue_or_pr_number: i32,
+    /// Issue or PR.
+    pub kind: String,
+    /// Title.
+    pub title: String,
+    /// State.
+    pub state: String,
+    /// URL.
+    pub url: String,
+    /// Last sync timestamp.
+    pub last_synced_at: Option<String>,
 }
 
 /// Serializable GitHub issue search result.
-#[derive(Serialize)]
-struct GitHubIssueResultOut {
-    repo_owner: String,
-    repo_name: String,
-    number: i32,
-    kind: String,
-    title: String,
-    state: String,
-    url: String,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GitHubIssueResultOut {
+    /// Repository owner.
+    pub repo_owner: String,
+    /// Repository name.
+    pub repo_name: String,
+    /// Issue/PR number.
+    pub number: i32,
+    /// Issue or PR.
+    pub kind: String,
+    /// Title.
+    pub title: String,
+    /// State.
+    pub state: String,
+    /// URL.
+    pub url: String,
+}
+
+/// Unlink confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct GitHubLinkUnlinkOut {
+    /// Whether the unlink succeeded.
+    pub unlinked: bool,
+    /// Link ID.
+    pub link_id: String,
 }
 
 /// Build a mutating request with object-id and idempotency headers.
@@ -246,12 +285,11 @@ pub async fn build_client(
     ))
 }
 
-/// Run a GitHub link command.
+/// Run a GitHub link command and return the result data.
 pub async fn run(
     cmd: GitHubAction,
-    format: OutputFormat,
     client: &mut dyn GithubLinkService,
-) -> Result<()> {
+) -> Result<GitHubLinkOutput> {
     match cmd {
         GitHubAction::Link { card_id, issue } => {
             let (repo_owner, repo_name, number) = parse_issue_ref(&issue)?;
@@ -262,20 +300,17 @@ pub async fn run(
                 number,
             };
             let resp = client.link_issue(mutating_request(req, &card_id)?).await?;
-            render(&link_detail_out(resp), format)
+            Ok(GitHubLinkOutput::Linked(link_detail_out(resp)))
         }
         GitHubAction::Unlink { card, link_id } => {
             let req = client::UnlinkGitHubIssueRequest {
                 link_id: link_id.clone(),
             };
             client.unlink_issue(mutating_request(req, &card)?).await?;
-            render(
-                &serde_json::json!({
-                    "unlinked": true,
-                    "link_id": link_id,
-                }),
-                format,
-            )
+            Ok(GitHubLinkOutput::Unlinked(GitHubLinkUnlinkOut {
+                unlinked: true,
+                link_id,
+            }))
         }
         GitHubAction::List { card_id } => {
             let req = client::ListGitHubLinksByCardRequest {
@@ -285,22 +320,7 @@ pub async fn run(
                 .list_links_by_card(client::request_with_object_id(req, &card_id)?)
                 .await?;
             let links: Vec<_> = resp.links.into_iter().map(link_detail_out).collect();
-            render_list(
-                &links,
-                &["REPO", "NUMBER", "KIND", "TITLE", "STATE", "URL", "ID"],
-                |l| {
-                    vec![
-                        format!("{}/{}", l.repo_owner, l.repo_name),
-                        l.issue_or_pr_number.to_string(),
-                        l.kind.clone(),
-                        l.title.clone(),
-                        l.state.clone(),
-                        l.url.clone(),
-                        l.id.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(GitHubLinkOutput::Listed(links))
         }
         GitHubAction::Search { card, repo, query } => {
             let (repo_owner, repo_name) = parse_repo(&repo)?;
@@ -314,28 +334,14 @@ pub async fn run(
                 .search_github_issues(client::request_with_object_id(req, &card)?)
                 .await?;
             let results: Vec<_> = resp.results.into_iter().map(issue_result_out).collect();
-            render_list(
-                &results,
-                &["REPO", "NUMBER", "KIND", "TITLE", "STATE", "URL"],
-                |r| {
-                    vec![
-                        format!("{}/{}", r.repo_owner, r.repo_name),
-                        r.number.to_string(),
-                        r.kind.clone(),
-                        r.title.clone(),
-                        r.state.clone(),
-                        r.url.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(GitHubLinkOutput::Searched(results))
         }
         GitHubAction::Resync { card, link_id } => {
             let req = client::ResyncGitHubLinkRequest {
                 link_id: link_id.clone(),
             };
             let resp = client.resync_link(mutating_request(req, &card)?).await?;
-            render(&link_detail_out(resp), format)
+            Ok(GitHubLinkOutput::Linked(link_detail_out(resp)))
         }
     }
 }
@@ -360,7 +366,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn link_renders_detail() {
+    async fn link_returns_detail() {
         let mut mock = MockGithubLinkService::new();
         mock.expect_link_issue()
             .withf(|req| {
@@ -378,20 +384,27 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_link_detail("link_1")));
 
-        run(
+        let out = run(
             GitHubAction::Link {
                 card_id: "card_1".into(),
                 issue: "sunbeam/cli#42".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            GitHubLinkOutput::Linked(d) => {
+                assert_eq!(d.id, "link_1");
+                assert_eq!(d.issue_or_pr_number, 42);
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn unlink_renders_ok() {
+    async fn unlink_returns_confirmation() {
         let mut mock = MockGithubLinkService::new();
         mock.expect_unlink_issue()
             .withf(|req| {
@@ -405,20 +418,27 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             GitHubAction::Unlink {
                 card: "card_1".into(),
                 link_id: "link_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            GitHubLinkOutput::Unlinked(u) => {
+                assert!(u.unlinked);
+                assert_eq!(u.link_id, "link_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn list_renders_links() {
+    async fn list_returns_links() {
         let mut mock = MockGithubLinkService::new();
         mock.expect_list_links_by_card()
             .withf(|req| {
@@ -436,19 +456,26 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             GitHubAction::List {
                 card_id: "card_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            GitHubLinkOutput::Listed(links) => {
+                assert_eq!(links.len(), 1);
+                assert_eq!(links[0].id, "link_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn search_renders_results() {
+    async fn search_returns_results() {
         let mut mock = MockGithubLinkService::new();
         mock.expect_search_github_issues()
             .withf(|req| {
@@ -477,21 +504,28 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             GitHubAction::Search {
                 card: "card_1".into(),
                 repo: "sunbeam/cli".into(),
                 query: "crash".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            GitHubLinkOutput::Searched(results) => {
+                assert_eq!(results.len(), 1);
+                assert_eq!(results[0].number, 42);
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn resync_renders_detail() {
+    async fn resync_returns_detail() {
         let mut mock = MockGithubLinkService::new();
         mock.expect_resync_link()
             .withf(|req| {
@@ -505,20 +539,21 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_link_detail("link_1")));
 
-        run(
+        let out = run(
             GitHubAction::Resync {
                 card: "card_1".into(),
                 link_id: "link_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, GitHubLinkOutput::Linked(_)));
     }
 
     #[tokio::test]
-    async fn list_links_table_renders() {
+    async fn list_links_returns_multiple() {
         let mut mock = MockGithubLinkService::new();
         mock.expect_list_links_by_card().times(1).returning(|_| {
             Ok(client::ListGitHubLinksByCardResponse {
@@ -526,19 +561,20 @@ mod tests {
             })
         });
 
-        run(
+        let out = run(
             GitHubAction::List {
                 card_id: "card_1".into(),
             },
-            OutputFormat::Table,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, GitHubLinkOutput::Listed(_)));
     }
 
     #[tokio::test]
-    async fn search_issues_table_renders() {
+    async fn search_issues_returns_multiple() {
         let mut mock = MockGithubLinkService::new();
         mock.expect_search_github_issues().times(1).returning(|_| {
             Ok(client::SearchGithubIssuesResponse {
@@ -554,17 +590,18 @@ mod tests {
             })
         });
 
-        run(
+        let out = run(
             GitHubAction::Search {
                 card: "card_1".into(),
                 repo: "sunbeam/cli".into(),
                 query: "crash".into(),
             },
-            OutputFormat::Table,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, GitHubLinkOutput::Searched(_)));
     }
 
     #[test]

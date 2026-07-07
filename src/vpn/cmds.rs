@@ -13,6 +13,47 @@ use crate::error::{Result, SunbeamError};
 
 use crate::vpn::env::vpn_state_dir;
 
+/// Status information returned by `cmd_vpn_status`.
+#[derive(Debug)]
+pub enum VpnStatus {
+    /// No daemon control socket exists.
+    NotRunning,
+    /// Daemon is running and its details have been collected.
+    Running(VpnRunningStatus),
+    /// Daemon reports a non-running state (e.g. starting, connecting).
+    Transitioning(String),
+    /// A control socket exists but the daemon is not responding.
+    StaleSocket {
+        /// Path to the stale control socket.
+        socket: std::path::PathBuf,
+        /// Human-readable connection error.
+        error: String,
+    },
+}
+
+/// Detailed status for a running VPN daemon.
+#[derive(Debug)]
+pub struct VpnRunningStatus {
+    /// Assigned VPN IP addresses.
+    pub addresses: Vec<String>,
+    /// Number of connected peers.
+    pub peer_count: usize,
+    /// Home DERP region, if known.
+    pub derp_home: Option<u16>,
+    /// Local SOCKS5/HTTP CONNECT proxy port, if staged.
+    pub socks_proxy_port: Option<u16>,
+    /// Unix timestamp of the most recent handshake failure, if any.
+    pub last_handshake_fail: Option<u64>,
+    /// Advertised subnet routes.
+    pub routes: Vec<sunbeam_net::RouteInfo>,
+    /// Error querying routes, if any.
+    pub routes_error: Option<String>,
+    /// Recent proxy connection audit entries (newest first).
+    pub recent_connections: Vec<sunbeam_net::proxy::audit::AuditEntry>,
+    /// Error querying recent connections, if any.
+    pub recent_connections_error: Option<String>,
+}
+
 /// Run `sunbeam connect`.
 ///
 /// Default mode spawns a backgrounded daemon and returns once it reaches
@@ -266,12 +307,11 @@ pub async fn cmd_disconnect() -> Result<()> {
 
 /// Run `sunbeam vpn status` — query a running daemon's status via IPC.
 #[tracing::instrument]
-pub async fn cmd_vpn_status() -> Result<()> {
+pub async fn cmd_vpn_status() -> Result<VpnStatus> {
     let socket = vpn_state_dir()?.join("daemon.sock");
     let client = sunbeam_net::IpcClient::new(&socket);
     if !client.socket_exists() {
-        println!("VPN: not running");
-        return Ok(());
+        return Ok(VpnStatus::NotRunning);
     }
     match client.status().await {
         Ok(sunbeam_net::DaemonStatus::Running {
@@ -282,119 +322,33 @@ pub async fn cmd_vpn_status() -> Result<()> {
             last_handshake_fail,
         }) => {
             let addrs: Vec<String> = addresses.iter().map(|a| a.to_string()).collect();
-            println!("VPN: running");
-            println!("  addresses: {}", addrs.join(", "));
-            println!("  peers: {peer_count}");
-            if let Some(region) = derp_home {
-                println!("  derp home: region {region}");
-            }
-            if let Some(port) = socks_proxy_port {
-                println!("  socks proxy: 127.0.0.1:{port}");
-            }
-            if let Some(ts) = last_handshake_fail {
-                println!("  last handshake failure: {}", format_unix_ts(ts));
-            }
-            print_routes(&client).await;
-            print_recent_connections(&client).await;
+            let (routes, routes_error) = match client.routes().await {
+                Ok(routes) => (routes, None),
+                Err(e) => (Vec::new(), Some(e.to_string())),
+            };
+            let (recent_connections, recent_connections_error) =
+                match client.recent_connections(10).await {
+                    Ok(entries) => (entries, None),
+                    Err(e) => (Vec::new(), Some(e.to_string())),
+                };
+            Ok(VpnStatus::Running(VpnRunningStatus {
+                addresses: addrs,
+                peer_count,
+                derp_home,
+                socks_proxy_port,
+                last_handshake_fail,
+                routes,
+                routes_error,
+                recent_connections,
+                recent_connections_error,
+            }))
         }
-        Ok(other) => {
-            println!("VPN: {other}");
-        }
-        Err(e) => {
-            // Socket exists but daemon isn't actually responding — common
-            // when the daemon crashed and left a stale socket file behind.
-            println!("VPN: stale socket at {} ({e})", socket.display());
-        }
+        Ok(other) => Ok(VpnStatus::Transitioning(other.to_string())),
+        Err(e) => Ok(VpnStatus::StaleSocket {
+            socket,
+            error: e.to_string(),
+        }),
     }
-    Ok(())
-}
-
-/// Query the daemon for its subnet-router table and print one line per
-/// advertised prefix. Silently skipped if the daemon doesn't answer —
-/// `sunbeam vpn status` is a best-effort view and we'd rather show
-/// partial output than bail.
-async fn print_routes(client: &sunbeam_net::IpcClient) {
-    match client.routes().await {
-        Ok(routes) if !routes.is_empty() => {
-            println!("  routes:");
-            for r in routes {
-                // Collapse long node keys to a short suffix; the full
-                // 64-char base64 hides the useful information.
-                let short = short_node_key(&r.node_key);
-                println!("    {:<20}  via {short}", r.cidr);
-            }
-        }
-        Ok(_) => {
-            println!("  routes: (none)");
-        }
-        Err(e) => {
-            println!("  routes: (query failed: {e})");
-        }
-    }
-}
-
-/// Pull the last few SOCKS/HTTP proxy audit entries and render them
-/// as a compact table. Accepted and denied entries share the same
-/// layout so it's easy to eyeball what the proxy is actually doing.
-async fn print_recent_connections(client: &sunbeam_net::IpcClient) {
-    const TAIL: usize = 10;
-    match client.recent_connections(TAIL).await {
-        Ok(entries) if !entries.is_empty() => {
-            println!("  recent connections (newest first):");
-            for e in entries {
-                println!(
-                    "    {:>5}  {:<20}  {}",
-                    e.protocol,
-                    e.outcome.label(),
-                    e.destination,
-                );
-            }
-        }
-        Ok(_) => {
-            println!("  recent connections: (none)");
-        }
-        Err(e) => {
-            println!("  recent connections: (query failed: {e})");
-        }
-    }
-}
-
-/// Format a Unix timestamp (seconds) as a minimal RFC3339 UTC string.
-/// No external date crate needed — pure integer arithmetic.
-fn format_unix_ts(secs: u64) -> String {
-    // Days since Unix epoch → calendar date via the algorithm from
-    // https://howardhinnant.github.io/date_algorithms.html (civil_from_days).
-    let days = secs / 86400;
-    let time_of_day = secs % 86400;
-    let h = time_of_day / 3600;
-    let m = (time_of_day % 3600) / 60;
-    let s = time_of_day % 60;
-
-    let z = days as i64 + 719468;
-    let era = if z >= 0 { z } else { z - 146096 } / 146097;
-    let doe = (z - era * 146097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let mo = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if mo <= 2 { y + 1 } else { y };
-
-    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
-}
-
-/// Collapse a full `nodekey:...` string to a short display form so the
-/// routes table stays readable. We keep the first 12 hex characters,
-/// which is unique enough for operator-level identification.
-fn short_node_key(key: &str) -> String {
-    let body = key.strip_prefix("nodekey:").unwrap_or(key);
-    let cut = body
-        .char_indices()
-        .nth(12)
-        .map(|(i, _)| i)
-        .unwrap_or(body.len());
-    format!("nodekey:{}…", &body[..cut])
 }
 
 /// Run `sunbeam vpn create-key` — call Headscale's REST API to mint a
@@ -411,7 +365,7 @@ pub async fn cmd_vpn_create_key(
     reusable: bool,
     ephemeral: bool,
     expiration: &str,
-) -> Result<()> {
+) -> Result<String> {
     let ctx = active_context();
     if ctx.vpn_url.is_empty() {
         return Err(SunbeamError::Other(
@@ -481,12 +435,7 @@ pub async fn cmd_vpn_create_key(
         .and_then(|k| k.as_str())
         .ok_or_else(|| SunbeamError::Other(format!("no preAuthKey.key in response: {text}")))?;
 
-    tracing::info!("Pre-auth key for user '{user}':");
-    println!("{key}");
-    println!();
-    println!("Add it to a context with:");
-    println!("  sunbeam config set --context <ctx> vpn-auth-key {key}");
-    Ok(())
+    Ok(key.to_string())
 }
 
 /// Look up a Headscale user by name and return its numeric ID.

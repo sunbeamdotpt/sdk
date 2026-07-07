@@ -2,11 +2,11 @@
 
 use crate::error::{Result, ResultExt};
 use crate::kanban::boards::VisibilityArg;
+use crate::kanban::cards::CardDetailOut;
 use crate::kanban::client::{self, AggregatedBoardServiceClient, request_with_object_id};
 use crate::kanban::new_idempotency_key;
 use crate::kanban::resolve;
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render, render_list};
 use async_trait::async_trait;
 use clap::Subcommand;
 use serde::Serialize;
@@ -257,15 +257,22 @@ fn fmt_ts(ts: Option<&prost_types::Timestamp>) -> String {
 }
 
 /// Serializable aggregated board summary for list views.
-#[derive(Serialize)]
-struct AggregatedBoardOut {
-    id: String,
-    name: String,
-    description: String,
-    icon: String,
-    visibility: String,
-    created_at: String,
-    updated_at: String,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AggregatedBoardOut {
+    /// Board ID.
+    pub id: String,
+    /// Board name.
+    pub name: String,
+    /// Description.
+    pub description: String,
+    /// Icon.
+    pub icon: String,
+    /// Visibility label.
+    pub visibility: String,
+    /// Created timestamp.
+    pub created_at: String,
+    /// Updated timestamp.
+    pub updated_at: String,
 }
 
 impl AggregatedBoardOut {
@@ -282,6 +289,42 @@ impl AggregatedBoardOut {
             updated_at: fmt_ts(board.updated_at.as_ref()),
         }
     }
+}
+
+/// Full aggregated board detail, assembled from stream chunks.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AggregatedBoardDetailOut {
+    /// Board metadata.
+    pub metadata: Option<AggregatedBoardOut>,
+    /// Source board references.
+    pub sources: Vec<serde_json::Value>,
+    /// Columns.
+    pub columns: Vec<serde_json::Value>,
+    /// Cards.
+    pub cards: Vec<CardDetailOut>,
+}
+
+/// Aggregated board deletion confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AggregatedBoardDeleteOut {
+    /// Whether the deletion succeeded.
+    pub deleted: bool,
+    /// Deleted aggregated board ID.
+    pub aggregate_id: String,
+}
+
+/// Result of running an aggregated board command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum AggregatedBoardOutput {
+    /// List of aggregated boards.
+    List(Vec<AggregatedBoardOut>),
+    /// Full board detail.
+    Detail(AggregatedBoardDetailOut),
+    /// Single board summary.
+    Board(AggregatedBoardOut),
+    /// Deletion confirmation.
+    Deleted(AggregatedBoardDeleteOut),
 }
 
 fn source_to_json(s: client::SourceBoardRef) -> serde_json::Value {
@@ -305,12 +348,11 @@ fn column_to_json(c: client::AggregatedColumn) -> serde_json::Value {
     })
 }
 
-/// Run an aggregated board command.
+/// Run an aggregated board command and return the result data.
 pub async fn run(
     cmd: AggregateAction,
-    format: OutputFormat,
     client: &mut dyn AggregatedBoardService,
-) -> Result<()> {
+) -> Result<AggregatedBoardOutput> {
     match cmd {
         AggregateAction::List => {
             let resp = client
@@ -322,20 +364,7 @@ pub async fn run(
                 .into_iter()
                 .map(AggregatedBoardOut::from_proto)
                 .collect();
-            render_list(
-                &boards,
-                &["NAME", "DESCRIPTION", "ICON", "VISIBILITY", "ID"],
-                |b| {
-                    vec![
-                        b.name.clone(),
-                        b.description.clone(),
-                        b.icon.clone(),
-                        b.visibility.clone(),
-                        b.id.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(AggregatedBoardOutput::List(boards))
         }
         AggregateAction::Get { aggregate_id } => {
             let aggregate_id = resolve::resolve_aggregate_id(client, &aggregate_id).await?;
@@ -368,13 +397,15 @@ pub async fn run(
                 }
             }
 
-            let output = serde_json::json!({
-                "metadata": metadata.map(AggregatedBoardOut::from_proto),
-                "sources": sources.into_iter().map(source_to_json).collect::<Vec<_>>(),
-                "columns": columns.into_iter().map(column_to_json).collect::<Vec<_>>(),
-                "cards": cards.into_iter().map(crate::kanban::cards::CardDetailOut::from_proto).collect::<Vec<_>>(),
-            });
-            render(&output, format)
+            Ok(AggregatedBoardOutput::Detail(AggregatedBoardDetailOut {
+                metadata: metadata.map(AggregatedBoardOut::from_proto),
+                sources: sources.into_iter().map(source_to_json).collect::<Vec<_>>(),
+                columns: columns.into_iter().map(column_to_json).collect::<Vec<_>>(),
+                cards: cards
+                    .into_iter()
+                    .map(CardDetailOut::from_proto)
+                    .collect::<Vec<_>>(),
+            }))
         }
         AggregateAction::Create {
             name,
@@ -396,7 +427,9 @@ pub async fn run(
                 .create_aggregated_board(tonic::Request::new(req))
                 .await
                 .with_ctx(|| "create aggregated board".to_string())?;
-            render(&AggregatedBoardOut::from_proto(resp), format)
+            Ok(AggregatedBoardOutput::Board(
+                AggregatedBoardOut::from_proto(resp),
+            ))
         }
         AggregateAction::Update {
             aggregate_id,
@@ -431,7 +464,9 @@ pub async fn run(
                 .update_aggregated_board(request_with_object_id(req, &aggregate_id)?)
                 .await
                 .with_ctx(|| format!("update aggregated board {aggregate_id}"))?;
-            render(&AggregatedBoardOut::from_proto(resp), format)
+            Ok(AggregatedBoardOutput::Board(
+                AggregatedBoardOut::from_proto(resp),
+            ))
         }
         AggregateAction::Delete { aggregate_id } => {
             let aggregate_id = resolve::resolve_aggregate_id(client, &aggregate_id).await?;
@@ -442,7 +477,10 @@ pub async fn run(
                 .delete_aggregated_board(request_with_object_id(req, &aggregate_id)?)
                 .await
                 .with_ctx(|| format!("delete aggregated board {aggregate_id}"))?;
-            Ok(())
+            Ok(AggregatedBoardOutput::Deleted(AggregatedBoardDeleteOut {
+                deleted: true,
+                aggregate_id,
+            }))
         }
         AggregateAction::Source { action } => match action {
             SourceAction::Add {
@@ -462,7 +500,9 @@ pub async fn run(
                     .with_ctx(|| {
                         format!("add source board {board_id} to aggregate {aggregate_id}")
                     })?;
-                render(&AggregatedBoardOut::from_proto(resp), format)
+                Ok(AggregatedBoardOutput::Board(
+                    AggregatedBoardOut::from_proto(resp),
+                ))
             }
             SourceAction::Remove {
                 aggregate_id,
@@ -479,7 +519,9 @@ pub async fn run(
                     .with_ctx(|| {
                         format!("remove source board {board_id} from aggregate {aggregate_id}")
                     })?;
-                render(&AggregatedBoardOut::from_proto(resp), format)
+                Ok(AggregatedBoardOutput::Board(
+                    AggregatedBoardOut::from_proto(resp),
+                ))
             }
             SourceAction::Move {
                 aggregate_id,
@@ -498,7 +540,9 @@ pub async fn run(
                     .with_ctx(|| {
                         format!("move source board {board_id} in aggregate {aggregate_id}")
                     })?;
-                render(&AggregatedBoardOut::from_proto(resp), format)
+                Ok(AggregatedBoardOutput::Board(
+                    AggregatedBoardOut::from_proto(resp),
+                ))
             }
         },
     }
@@ -507,7 +551,6 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::OutputFormat;
 
     fn board(id: &str, name: &str) -> client::AggregatedBoard {
         client::AggregatedBoard {
@@ -522,7 +565,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_renders_aggregated_boards() {
+    async fn list_returns_aggregated_boards() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_list_aggregated_boards()
             .withf(|req| req.get_ref() == &client::ListAggregatedBoardsRequest {})
@@ -533,13 +576,15 @@ mod tests {
                 })
             });
 
-        run(AggregateAction::List, OutputFormat::Json, &mut mock)
-            .await
-            .unwrap();
+        let out = run(AggregateAction::List, &mut mock).await.unwrap();
+        match out {
+            AggregatedBoardOutput::List(boards) => assert_eq!(boards.len(), 1),
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn get_renders_aggregated_board() {
+    async fn get_returns_aggregated_board() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_get_aggregated_board()
             .withf(|req| req.get_ref().aggregated_board_id == "agg_1")
@@ -592,19 +637,28 @@ mod tests {
                 ])
             });
 
-        run(
+        let out = run(
             AggregateAction::Get {
                 aggregate_id: "agg_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            AggregatedBoardOutput::Detail(d) => {
+                assert!(d.metadata.is_some());
+                assert_eq!(d.sources.len(), 1);
+                assert_eq!(d.columns.len(), 1);
+                assert_eq!(d.cards.len(), 1);
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn create_renders_aggregated_board() {
+    async fn create_returns_aggregated_board() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_create_aggregated_board()
             .withf(|req| {
@@ -619,22 +673,23 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board("agg_1", "Roadmap")));
 
-        run(
+        let out = run(
             AggregateAction::Create {
                 name: "Roadmap".into(),
                 description: None,
                 icon: None,
                 visibility: None,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn update_renders_aggregated_board() {
+    async fn update_returns_aggregated_board() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_update_aggregated_board()
             .withf(|req| {
@@ -657,41 +712,49 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board("agg_1", "Renamed")));
 
-        run(
+        let out = run(
             AggregateAction::Update {
                 aggregate_id: "agg_1".into(),
                 name: Some("Renamed".into()),
                 description: None,
                 icon: None,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn delete_succeeds() {
+    async fn delete_returns_confirmation() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_delete_aggregated_board()
             .withf(|req| req.get_ref().aggregated_board_id == "agg_1")
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             AggregateAction::Delete {
                 aggregate_id: "agg_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            AggregatedBoardOutput::Deleted(d) => {
+                assert!(d.deleted);
+                assert_eq!(d.aggregate_id, "agg_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn source_add_renders_aggregated_board() {
+    async fn source_add_returns_aggregated_board() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_add_source_board()
             .withf(|req| {
@@ -701,7 +764,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board("agg_1", "Roadmap")));
 
-        run(
+        let out = run(
             AggregateAction::Source {
                 action: SourceAction::Add {
                     aggregate_id: "agg_1".into(),
@@ -709,15 +772,16 @@ mod tests {
                     position: Some(2),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn source_remove_renders_aggregated_board() {
+    async fn source_remove_returns_aggregated_board() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_remove_source_board()
             .withf(|req| {
@@ -727,22 +791,23 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board("agg_1", "Roadmap")));
 
-        run(
+        let out = run(
             AggregateAction::Source {
                 action: SourceAction::Remove {
                     aggregate_id: "agg_1".into(),
                     board_id: "board_1".into(),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn source_move_renders_aggregated_board() {
+    async fn source_move_returns_aggregated_board() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_move_source_board()
             .withf(|req| {
@@ -752,7 +817,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board("agg_1", "Roadmap")));
 
-        run(
+        let out = run(
             AggregateAction::Source {
                 action: SourceAction::Move {
                     aggregate_id: "agg_1".into(),
@@ -760,31 +825,16 @@ mod tests {
                     position: 3,
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn list_aggregated_boards_table_renders() {
-        let mut mock = MockAggregatedBoardService::new();
-        mock.expect_list_aggregated_boards()
-            .times(1)
-            .returning(|_| {
-                Ok(client::ListAggregatedBoardsResponse {
-                    aggregated_boards: vec![board("agg_1", "Roadmap")],
-                })
-            });
-
-        run(AggregateAction::List, OutputFormat::Table, &mut mock)
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn create_aggregated_board_with_all_options_renders() {
+    async fn create_aggregated_board_with_all_options_returns() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_create_aggregated_board()
             .withf(|req| {
@@ -798,22 +848,23 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board("agg_1", "N")));
 
-        run(
+        let out = run(
             AggregateAction::Create {
                 name: "N".into(),
                 description: Some("D".into()),
                 icon: Some("I".into()),
                 visibility: Some(VisibilityArg::Public),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn update_aggregated_board_with_all_options_renders() {
+    async fn update_aggregated_board_with_all_options_returns() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_update_aggregated_board()
             .withf(|req| {
@@ -825,22 +876,23 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board("agg_1", "N")));
 
-        run(
+        let out = run(
             AggregateAction::Update {
                 aggregate_id: "agg_1".into(),
                 name: Some("N".into()),
                 description: Some("D".into()),
                 icon: Some("I".into()),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Board(_)));
     }
 
     #[tokio::test]
-    async fn source_add_with_default_position_renders() {
+    async fn source_add_with_default_position_returns() {
         let mut mock = MockAggregatedBoardService::new();
         mock.expect_add_source_board()
             .withf(|req| {
@@ -850,7 +902,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(board("agg_1", "Roadmap")));
 
-        run(
+        let out = run(
             AggregateAction::Source {
                 action: SourceAction::Add {
                     aggregate_id: "agg_1".into(),
@@ -858,11 +910,12 @@ mod tests {
                     position: None,
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Board(_)));
     }
 
     #[test]
@@ -915,15 +968,16 @@ mod tests {
                 }])
             });
 
-        run(
+        let out = run(
             AggregateAction::Get {
                 aggregate_id: "Roadmap".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AggregatedBoardOutput::Detail(_)));
     }
 
     #[tokio::test]

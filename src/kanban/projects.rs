@@ -10,7 +10,6 @@ use crate::kanban::client::{
 use crate::kanban::fmt_proto_time;
 use crate::kanban::resolve;
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render, render_list};
 use async_trait::async_trait;
 use clap::Subcommand;
 use prost_types::FieldMask;
@@ -102,17 +101,26 @@ pub enum MemberAction {
 }
 
 /// Serializable project for output.
-#[derive(Serialize)]
-struct ProjectOut {
-    id: String,
-    name: String,
-    prefix: String,
-    icon: String,
-    color: String,
-    description: String,
-    created_at: String,
-    updated_at: String,
-    member_count: i32,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ProjectOut {
+    /// Project ID.
+    pub id: String,
+    /// Project name.
+    pub name: String,
+    /// Short uppercase prefix.
+    pub prefix: String,
+    /// Icon identifier.
+    pub icon: String,
+    /// Color token.
+    pub color: String,
+    /// Description.
+    pub description: String,
+    /// Creation timestamp.
+    pub created_at: String,
+    /// Last update timestamp.
+    pub updated_at: String,
+    /// Number of members.
+    pub member_count: i32,
 }
 
 impl From<client::Project> for ProjectOut {
@@ -140,14 +148,20 @@ impl From<client::Project> for ProjectOut {
 }
 
 /// Serializable project member for output.
-#[derive(Serialize)]
-struct MemberOut {
-    project_id: String,
-    subject: String,
-    relation: String,
-    display_name: String,
-    email: String,
-    added_at: String,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct MemberOut {
+    /// Project ID.
+    pub project_id: String,
+    /// SSO subject.
+    pub subject: String,
+    /// Relation.
+    pub relation: String,
+    /// Display name.
+    pub display_name: String,
+    /// Email address.
+    pub email: String,
+    /// Added timestamp.
+    pub added_at: String,
 }
 
 impl From<client::ProjectMember> for MemberOut {
@@ -161,6 +175,57 @@ impl From<client::ProjectMember> for MemberOut {
             added_at: m.added_at.as_ref().map(fmt_proto_time).unwrap_or_default(),
         }
     }
+}
+
+/// Project deletion confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ProjectDeleteOut {
+    /// Whether the deletion succeeded.
+    pub deleted: bool,
+    /// Deleted project ID.
+    pub project_id: String,
+}
+
+/// Member addition confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct MemberAddOut {
+    /// Whether the addition succeeded.
+    pub added: bool,
+    /// Project ID.
+    pub project_id: String,
+    /// Member subject.
+    pub subject: String,
+    /// Relation.
+    pub relation: String,
+}
+
+/// Member removal confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct MemberRemoveOut {
+    /// Whether the removal succeeded.
+    pub removed: bool,
+    /// Project ID.
+    pub project_id: String,
+    /// Member subject.
+    pub subject: String,
+}
+
+/// Result of running a project command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ProjectOutput {
+    /// List of projects.
+    List(Vec<ProjectOut>),
+    /// Single project.
+    Project(ProjectOut),
+    /// Deletion confirmation.
+    Deleted(ProjectDeleteOut),
+    /// List of members.
+    Members(Vec<MemberOut>),
+    /// Member addition confirmation.
+    MemberAdded(MemberAddOut),
+    /// Member removal confirmation.
+    MemberRemoved(MemberRemoveOut),
 }
 
 /// Trait abstracting the Kanban project service for testability.
@@ -302,12 +367,8 @@ async fn resolve_member_subject(subject: &str) -> Result<String> {
     crate::auth::resolve_subject_for_email(subject).await
 }
 
-/// Run a project command.
-pub async fn run(
-    cmd: ProjectAction,
-    format: OutputFormat,
-    client: &mut dyn ProjectService,
-) -> Result<()> {
+/// Run a project command and return the result data.
+pub async fn run(cmd: ProjectAction, client: &mut dyn ProjectService) -> Result<ProjectOutput> {
     match cmd {
         ProjectAction::List => {
             let resp = client
@@ -315,20 +376,7 @@ pub async fn run(
                 .await
                 .with_ctx(|| "list projects failed".to_string())?;
             let projects: Vec<ProjectOut> = resp.projects.into_iter().map(Into::into).collect();
-            render_list(
-                &projects,
-                &["NAME", "PREFIX", "DESCRIPTION", "MEMBERS", "ID"],
-                |p| {
-                    vec![
-                        p.name.clone(),
-                        p.prefix.clone(),
-                        p.description.clone(),
-                        p.member_count.to_string(),
-                        p.id.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(ProjectOutput::List(projects))
         }
         ProjectAction::Get { project_id } => {
             let project_id = resolve::resolve_project_id(client, &project_id).await?;
@@ -342,7 +390,7 @@ pub async fn run(
                 .get_project(req)
                 .await
                 .with_ctx(|| "get project failed".to_string())?;
-            render(&ProjectOut::from(resp), format)
+            Ok(ProjectOutput::Project(ProjectOut::from(resp)))
         }
         ProjectAction::Create {
             name,
@@ -363,7 +411,7 @@ pub async fn run(
                 .create_project(tonic::Request::new(req))
                 .await
                 .with_ctx(|| "create project failed".to_string())?;
-            render(&ProjectOut::from(resp), format)
+            Ok(ProjectOutput::Project(ProjectOut::from(resp)))
         }
         ProjectAction::Update {
             project_id,
@@ -405,7 +453,7 @@ pub async fn run(
                 .update_project(req)
                 .await
                 .with_ctx(|| "update project failed".to_string())?;
-            render(&ProjectOut::from(resp), format)
+            Ok(ProjectOutput::Project(ProjectOut::from(resp)))
         }
         ProjectAction::Delete { project_id } => {
             let project_id = resolve::resolve_project_id(client, &project_id).await?;
@@ -419,10 +467,10 @@ pub async fn run(
                 .delete_project(req)
                 .await
                 .with_ctx(|| "delete project failed".to_string())?;
-            render(
-                &serde_json::json!({"deleted": true, "project_id": project_id}),
-                format,
-            )
+            Ok(ProjectOutput::Deleted(ProjectDeleteOut {
+                deleted: true,
+                project_id,
+            }))
         }
         ProjectAction::Member { action } => match action {
             MemberAction::List { project_id } => {
@@ -438,23 +486,7 @@ pub async fn run(
                     .await
                     .with_ctx(|| "list members failed".to_string())?;
                 let members: Vec<MemberOut> = resp.members.into_iter().map(Into::into).collect();
-                render_list(
-                    &members,
-                    &["EMAIL", "RELATION", "DISPLAY NAME", "PROJECT ID"],
-                    |m| {
-                        vec![
-                            if m.email.is_empty() {
-                                m.subject.clone()
-                            } else {
-                                m.email.clone()
-                            },
-                            m.relation.clone(),
-                            m.display_name.clone(),
-                            m.project_id.clone(),
-                        ]
-                    },
-                    format,
-                )
+                Ok(ProjectOutput::Members(members))
             }
             MemberAction::Add {
                 project_id,
@@ -475,15 +507,12 @@ pub async fn run(
                     .add_member(req)
                     .await
                     .with_ctx(|| "add member failed".to_string())?;
-                render(
-                    &serde_json::json!({
-                        "added": true,
-                        "project_id": project_id,
-                        "subject": subject,
-                        "relation": relation,
-                    }),
-                    format,
-                )
+                Ok(ProjectOutput::MemberAdded(MemberAddOut {
+                    added: true,
+                    project_id,
+                    subject,
+                    relation,
+                }))
             }
             MemberAction::Remove {
                 project_id,
@@ -502,14 +531,11 @@ pub async fn run(
                     .remove_member(req)
                     .await
                     .with_ctx(|| "remove member failed".to_string())?;
-                render(
-                    &serde_json::json!({
-                        "removed": true,
-                        "project_id": project_id,
-                        "subject": subject,
-                    }),
-                    format,
-                )
+                Ok(ProjectOutput::MemberRemoved(MemberRemoveOut {
+                    removed: true,
+                    project_id,
+                    subject,
+                }))
             }
         },
     }
@@ -518,7 +544,6 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::OutputFormat;
 
     fn sample_project() -> client::Project {
         client::Project {
@@ -555,7 +580,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_projects_renders() {
+    async fn list_projects_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_list_projects()
             .withf(|req| req.get_ref() == &ListProjectsRequest {})
@@ -566,13 +591,15 @@ mod tests {
                 })
             });
 
-        run(ProjectAction::List, OutputFormat::Json, &mut mock)
-            .await
-            .unwrap();
+        let out = run(ProjectAction::List, &mut mock).await.unwrap();
+        match out {
+            ProjectOutput::List(projects) => assert_eq!(projects.len(), 1),
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn get_project_renders() {
+    async fn get_project_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_get_project()
             .withf(|req| {
@@ -586,19 +613,23 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        run(
+        let out = run(
             ProjectAction::Get {
                 project_id: "proj_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            ProjectOutput::Project(p) => assert_eq!(p.id, "proj_1"),
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn create_project_renders() {
+    async fn create_project_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_create_project()
             .withf(|req| {
@@ -613,7 +644,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        run(
+        let out = run(
             ProjectAction::Create {
                 name: "Sunbeam".into(),
                 prefix: "BEAM".into(),
@@ -621,15 +652,16 @@ mod tests {
                 color: Some("#ff0000".into()),
                 description: Some("All the things".into()),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, ProjectOutput::Project(_)));
     }
 
     #[tokio::test]
-    async fn update_project_renders() {
+    async fn update_project_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_update_project()
             .withf(|req| {
@@ -643,7 +675,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        run(
+        let out = run(
             ProjectAction::Update {
                 project_id: "proj_1".into(),
                 name: Some("Renamed".into()),
@@ -651,34 +683,42 @@ mod tests {
                 color: None,
                 description: Some("New desc".into()),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, ProjectOutput::Project(_)));
     }
 
     #[tokio::test]
-    async fn delete_project_renders() {
+    async fn delete_project_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_delete_project()
             .withf(|req| req.get_ref().project_id == "proj_1")
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             ProjectAction::Delete {
                 project_id: "proj_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            ProjectOutput::Deleted(d) => {
+                assert!(d.deleted);
+                assert_eq!(d.project_id, "proj_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn list_members_renders() {
+    async fn list_members_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_list_members()
             .withf(|req| req.get_ref().project_id == "proj_1")
@@ -689,21 +729,25 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             ProjectAction::Member {
                 action: MemberAction::List {
                     project_id: "proj_1".into(),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            ProjectOutput::Members(m) => assert_eq!(m.len(), 1),
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn add_member_renders() {
+    async fn add_member_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_add_member()
             .withf(|req| {
@@ -713,7 +757,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             ProjectAction::Member {
                 action: MemberAction::Add {
                     project_id: "proj_1".into(),
@@ -721,15 +765,22 @@ mod tests {
                     relation: "edit".into(),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            ProjectOutput::MemberAdded(a) => {
+                assert!(a.added);
+                assert_eq!(a.subject, "user:abc");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn remove_member_renders() {
+    async fn remove_member_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_remove_member()
             .withf(|req| {
@@ -739,36 +790,29 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             ProjectAction::Member {
                 action: MemberAction::Remove {
                     project_id: "proj_1".into(),
                     subject: "abc@test".into(),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            ProjectOutput::MemberRemoved(r) => {
+                assert!(r.removed);
+                assert_eq!(r.subject, "user:abc");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn list_projects_table_renders() {
-        let mut mock = MockProjectService::new();
-        mock.expect_list_projects().times(1).returning(|_| {
-            Ok(client::ListProjectsResponse {
-                projects: vec![sample_project()],
-            })
-        });
-
-        run(ProjectAction::List, OutputFormat::Table, &mut mock)
-            .await
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn create_project_with_all_options_renders() {
+    async fn create_project_with_all_options_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_create_project()
             .withf(|req| {
@@ -783,7 +827,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        run(
+        let out = run(
             ProjectAction::Create {
                 name: "N".into(),
                 prefix: "PR".into(),
@@ -791,15 +835,16 @@ mod tests {
                 color: Some("c".into()),
                 description: Some("d".into()),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, ProjectOutput::Project(_)));
     }
 
     #[tokio::test]
-    async fn update_project_with_all_options_renders() {
+    async fn update_project_with_all_options_returns() {
         let mut mock = MockProjectService::new();
         mock.expect_update_project()
             .withf(|req| {
@@ -816,7 +861,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        run(
+        let out = run(
             ProjectAction::Update {
                 project_id: "proj_1".into(),
                 name: Some("N".into()),
@@ -824,11 +869,12 @@ mod tests {
                 color: Some("C".into()),
                 description: Some("D".into()),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, ProjectOutput::Project(_)));
     }
 
     #[tokio::test]
@@ -854,15 +900,16 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_project()));
 
-        run(
+        let out = run(
             ProjectAction::Get {
                 project_id: "Sunbeam".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, ProjectOutput::Project(_)));
     }
 
     #[tokio::test]

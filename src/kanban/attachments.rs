@@ -3,7 +3,6 @@
 use crate::error::{Result, ResultExt, SunbeamError};
 use crate::kanban::client::{self, AttachmentServiceClient};
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render, render_list};
 use async_trait::async_trait;
 use clap::Subcommand;
 use serde::Serialize;
@@ -45,16 +44,58 @@ pub enum AttachmentAction {
 }
 
 /// Serializable attachment record.
-#[derive(Serialize)]
-struct AttachmentOut {
-    id: String,
-    card_id: String,
-    s3_key: String,
-    filename: String,
-    mime_type: String,
-    size_bytes: i64,
-    uploaded_by: String,
-    uploaded_at: Option<String>,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AttachmentOut {
+    /// Attachment ID.
+    pub id: String,
+    /// Card ID.
+    pub card_id: String,
+    /// S3 key.
+    pub s3_key: String,
+    /// Filename.
+    pub filename: String,
+    /// MIME type.
+    pub mime_type: String,
+    /// Size in bytes.
+    pub size_bytes: i64,
+    /// Uploader subject or email.
+    pub uploaded_by: String,
+    /// Upload timestamp.
+    pub uploaded_at: Option<String>,
+}
+
+/// Attachment deletion confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AttachmentDeleteOut {
+    /// Whether the deletion succeeded.
+    pub deleted: bool,
+    /// Deleted attachment ID.
+    pub attachment_id: String,
+}
+
+/// Attachment download confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct AttachmentDownloadOut {
+    /// Attachment ID.
+    pub attachment_id: String,
+    /// Destination path.
+    pub path: String,
+    /// Bytes written.
+    pub bytes: usize,
+}
+
+/// Result of running an attachment command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum AttachmentOutput {
+    /// List of attachments.
+    List(Vec<AttachmentOut>),
+    /// Uploaded attachment.
+    Uploaded(AttachmentOut),
+    /// Download confirmation.
+    Downloaded(AttachmentDownloadOut),
+    /// Deletion confirmation.
+    Deleted(AttachmentDeleteOut),
 }
 
 /// Build a mutating request with object-id and idempotency headers.
@@ -258,12 +299,11 @@ async fn resolve_uploader_emails(attachments: &mut [AttachmentOut]) {
     }
 }
 
-/// Run an attachment command.
+/// Run an attachment command and return the result data.
 pub async fn run(
     cmd: AttachmentAction,
-    format: OutputFormat,
     client: &mut dyn AttachmentService,
-) -> Result<()> {
+) -> Result<AttachmentOutput> {
     match cmd {
         AttachmentAction::List { card_id } => {
             let req = client::ListAttachmentsByCardRequest {
@@ -275,28 +315,7 @@ pub async fn run(
             let mut attachments: Vec<_> =
                 resp.attachments.into_iter().map(attachment_out).collect();
             resolve_uploader_emails(&mut attachments).await;
-            render_list(
-                &attachments,
-                &[
-                    "FILENAME",
-                    "MIME TYPE",
-                    "SIZE",
-                    "UPLOADED AT",
-                    "UPLOADED BY",
-                    "ID",
-                ],
-                |a| {
-                    vec![
-                        a.filename.clone(),
-                        a.mime_type.clone(),
-                        a.size_bytes.to_string(),
-                        a.uploaded_at.clone().unwrap_or_default(),
-                        a.uploaded_by.clone(),
-                        a.id.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(AttachmentOutput::List(attachments))
         }
         AttachmentAction::Upload { card_id, file } => {
             let bytes = tokio::fs::read(&file)
@@ -346,7 +365,7 @@ pub async fn run(
 
             let mut out = attachment_out(confirmed);
             resolve_uploader_emails(std::slice::from_mut(&mut out)).await;
-            render(&out, format)
+            Ok(AttachmentOutput::Uploaded(out))
         }
         AttachmentAction::Download {
             card,
@@ -382,14 +401,11 @@ pub async fn run(
                 .await
                 .with_ctx(|| format!("failed to write attachment to {path}"))?;
 
-            render(
-                &serde_json::json!({
-                    "attachment_id": attachment_id,
-                    "path": path,
-                    "bytes": bytes.len(),
-                }),
-                format,
-            )
+            Ok(AttachmentOutput::Downloaded(AttachmentDownloadOut {
+                attachment_id,
+                path,
+                bytes: bytes.len(),
+            }))
         }
         AttachmentAction::Delete {
             card,
@@ -401,13 +417,10 @@ pub async fn run(
             client
                 .delete_attachment(mutating_request(req, &card)?)
                 .await?;
-            render(
-                &serde_json::json!({
-                    "deleted": true,
-                    "attachment_id": attachment_id,
-                }),
-                format,
-            )
+            Ok(AttachmentOutput::Deleted(AttachmentDeleteOut {
+                deleted: true,
+                attachment_id,
+            }))
         }
     }
 }
@@ -433,7 +446,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_renders_attachments() {
+    async fn list_returns_attachments() {
         let mut mock = MockAttachmentService::new();
         mock.expect_list_attachments_by_card()
             .withf(|req| {
@@ -451,19 +464,23 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             AttachmentAction::List {
                 card_id: "card_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            AttachmentOutput::List(list) => assert_eq!(list.len(), 1),
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn delete_renders_ok() {
+    async fn delete_returns_confirmation() {
         let mut mock = MockAttachmentService::new();
         mock.expect_delete_attachment()
             .withf(|req| {
@@ -477,16 +494,23 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             AttachmentAction::Delete {
                 card: "card_1".into(),
                 attachment_id: "att_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            AttachmentOutput::Deleted(d) => {
+                assert!(d.deleted);
+                assert_eq!(d.attachment_id, "att_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -538,16 +562,17 @@ mod tests {
         let path = tmp_dir.path().join("file.txt");
         std::fs::write(&path, b"hello world\n").unwrap();
 
-        run(
+        let out = run(
             AttachmentAction::Upload {
                 card_id: "card_1".into(),
                 file: path.to_str().unwrap().to_string(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AttachmentOutput::Uploaded(_)));
     }
 
     #[tokio::test]
@@ -581,21 +606,29 @@ mod tests {
         let tmp = tempfile::NamedTempFile::with_suffix(".txt").unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
 
-        run(
+        let out = run(
             AttachmentAction::Download {
                 card: "card_1".into(),
                 attachment_id: "att_1".into(),
-                path,
+                path: path.clone(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            AttachmentOutput::Downloaded(d) => {
+                assert_eq!(d.attachment_id, "att_1");
+                assert_eq!(d.path, path);
+                assert_eq!(d.bytes, 12);
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn list_attachments_table_renders() {
+    async fn list_attachments_returns_multiple() {
         let mut mock = MockAttachmentService::new();
         mock.expect_list_attachments_by_card()
             .times(1)
@@ -605,15 +638,16 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             AttachmentAction::List {
                 card_id: "card_1".into(),
             },
-            OutputFormat::Table,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, AttachmentOutput::List(_)));
     }
 
     #[test]

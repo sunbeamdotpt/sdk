@@ -4,7 +4,6 @@ use crate::error::{Result, ResultExt};
 use crate::kanban::client::{self, CardServiceClient, request_with_object_id};
 use crate::kanban::new_idempotency_key;
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render, render_list};
 use async_trait::async_trait;
 use clap::Subcommand;
 use serde::Serialize;
@@ -133,18 +132,28 @@ pub enum DependencyAction {
 }
 
 /// Serializable card summary for list views.
-#[derive(Serialize)]
-struct CardOut {
-    id: String,
-    r#ref: String,
-    board_id: String,
-    column_id: String,
-    title: String,
-    priority: String,
-    blocked: bool,
-    position: i32,
-    comments_count: i32,
-    attachments_count: i32,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardOut {
+    /// Card ID.
+    pub id: String,
+    /// Human-readable reference.
+    pub r#ref: String,
+    /// Board ID.
+    pub board_id: String,
+    /// Column ID.
+    pub column_id: String,
+    /// Card title.
+    pub title: String,
+    /// Priority label.
+    pub priority: String,
+    /// Whether the card is blocked.
+    pub blocked: bool,
+    /// Position within the column.
+    pub position: i32,
+    /// Number of comments.
+    pub comments_count: i32,
+    /// Number of attachments.
+    pub attachments_count: i32,
 }
 
 impl CardOut {
@@ -174,38 +183,65 @@ fn fmt_ts(ts: Option<&prost_types::Timestamp>) -> String {
 }
 
 /// Serializable card detail for get/create/update/move/dependency views.
-#[derive(Serialize)]
-pub(crate) struct CardDetailOut {
-    id: String,
-    r#ref: String,
-    project_id: String,
-    board_id: String,
-    column_id: String,
-    title: String,
-    description: String,
-    priority: String,
-    urgency: String,
-    due: String,
-    completed_at: String,
-    blocked: bool,
-    cover: String,
-    milestone_id: String,
-    position: i32,
-    labels: Vec<serde_json::Value>,
-    assignees: Vec<serde_json::Value>,
-    checklist: Vec<serde_json::Value>,
-    github_links: Vec<serde_json::Value>,
-    comments_count: i32,
-    attachments_count: i32,
-    revision: u64,
-    created_at: String,
-    updated_at: String,
-    depends_on_card_ids: Vec<String>,
-    dependent_card_ids: Vec<String>,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardDetailOut {
+    /// Card ID.
+    pub id: String,
+    /// Human-readable reference.
+    pub r#ref: String,
+    /// Project ID.
+    pub project_id: String,
+    /// Board ID.
+    pub board_id: String,
+    /// Column ID.
+    pub column_id: String,
+    /// Title.
+    pub title: String,
+    /// Description.
+    pub description: String,
+    /// Priority label.
+    pub priority: String,
+    /// Urgency label.
+    pub urgency: String,
+    /// Due date.
+    pub due: String,
+    /// Completed timestamp.
+    pub completed_at: String,
+    /// Blocked flag.
+    pub blocked: bool,
+    /// Cover.
+    pub cover: String,
+    /// Milestone ID.
+    pub milestone_id: String,
+    /// Position.
+    pub position: i32,
+    /// Labels.
+    pub labels: Vec<serde_json::Value>,
+    /// Assignees.
+    pub assignees: Vec<serde_json::Value>,
+    /// Checklist items.
+    pub checklist: Vec<serde_json::Value>,
+    /// GitHub links.
+    pub github_links: Vec<serde_json::Value>,
+    /// Comments count.
+    pub comments_count: i32,
+    /// Attachments count.
+    pub attachments_count: i32,
+    /// Revision.
+    pub revision: u64,
+    /// Created timestamp.
+    pub created_at: String,
+    /// Updated timestamp.
+    pub updated_at: String,
+    /// Cards this card depends on.
+    pub depends_on_card_ids: Vec<String>,
+    /// Cards that depend on this card.
+    pub dependent_card_ids: Vec<String>,
 }
 
 impl CardDetailOut {
-    pub(crate) fn from_proto(card: client::Card) -> Self {
+    /// Build a detail view from a proto card.
+    pub fn from_proto(card: client::Card) -> Self {
         Self {
             id: card.id,
             r#ref: card.r#ref,
@@ -283,6 +319,28 @@ impl CardDetailOut {
             dependent_card_ids: card.dependent_card_ids,
         }
     }
+}
+
+/// Card deletion confirmation.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CardDeleteOut {
+    /// Whether the deletion succeeded.
+    pub deleted: bool,
+    /// Deleted card ID.
+    pub card_id: String,
+}
+
+/// Result of running a card command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
+pub enum CardOutput {
+    /// List of cards.
+    List(Vec<CardOut>),
+    /// Single card detail.
+    Detail(CardDetailOut),
+    /// Deletion confirmation.
+    Deleted(CardDeleteOut),
 }
 
 /// Trait abstracting the Kanban card service for testability.
@@ -458,12 +516,8 @@ async fn resolve_assignee_emails(assignees: &mut [serde_json::Value]) -> Result<
     Ok(())
 }
 
-/// Run a card command.
-pub async fn run(
-    cmd: CardAction,
-    format: OutputFormat,
-    client: &mut dyn CardService,
-) -> Result<()> {
+/// Run a card command and return the result data.
+pub async fn run(cmd: CardAction, client: &mut dyn CardService) -> Result<CardOutput> {
     match cmd {
         CardAction::List { board, column } => {
             let req = client::ListCardsByBoardRequest {
@@ -477,24 +531,7 @@ pub async fn run(
                 .await
                 .with_ctx(|| "list cards".to_string())?;
             let cards: Vec<_> = resp.cards.into_iter().map(CardOut::from_proto).collect();
-            render_list(
-                &cards,
-                &[
-                    "REF", "COLUMN", "TITLE", "PRIORITY", "BLOCKED", "POSITION", "ID",
-                ],
-                |c| {
-                    vec![
-                        c.r#ref.clone(),
-                        c.column_id.clone(),
-                        c.title.clone(),
-                        c.priority.clone(),
-                        c.blocked.to_string(),
-                        c.position.to_string(),
-                        c.id.clone(),
-                    ]
-                },
-                format,
-            )
+            Ok(CardOutput::List(cards))
         }
         CardAction::Get { card_id } => {
             let req = client::GetCardRequest {
@@ -506,7 +543,7 @@ pub async fn run(
                 .with_ctx(|| format!("get card {card_id}"))?;
             let mut detail = CardDetailOut::from_proto(resp);
             resolve_assignee_emails(&mut detail.assignees).await?;
-            render(&detail, format)
+            Ok(CardOutput::Detail(detail))
         }
         CardAction::Create {
             board,
@@ -533,7 +570,7 @@ pub async fn run(
                 .with_ctx(|| format!("create card on board {board}"))?;
             let mut detail = CardDetailOut::from_proto(resp);
             resolve_assignee_emails(&mut detail.assignees).await?;
-            render(&detail, format)
+            Ok(CardOutput::Detail(detail))
         }
         CardAction::Update {
             card_id,
@@ -570,7 +607,7 @@ pub async fn run(
                 .with_ctx(|| format!("update card {card_id}"))?;
             let mut detail = CardDetailOut::from_proto(resp);
             resolve_assignee_emails(&mut detail.assignees).await?;
-            render(&detail, format)
+            Ok(CardOutput::Detail(detail))
         }
         CardAction::Move {
             card_id,
@@ -589,7 +626,7 @@ pub async fn run(
                 .with_ctx(|| format!("move card {card_id}"))?;
             let mut detail = CardDetailOut::from_proto(resp);
             resolve_assignee_emails(&mut detail.assignees).await?;
-            render(&detail, format)
+            Ok(CardOutput::Detail(detail))
         }
         CardAction::Delete { card_id } => {
             let req = client::DeleteCardRequest {
@@ -599,7 +636,10 @@ pub async fn run(
                 .delete_card(request_with_object_id(req, &card_id)?)
                 .await
                 .with_ctx(|| format!("delete card {card_id}"))?;
-            Ok(())
+            Ok(CardOutput::Deleted(CardDeleteOut {
+                deleted: true,
+                card_id,
+            }))
         }
         CardAction::Dependency { action } => match action {
             DependencyAction::Add {
@@ -618,7 +658,7 @@ pub async fn run(
                     .with_ctx(|| format!("add dependency {depends_on} to card {card_id}"))?;
                 let mut detail = CardDetailOut::from_proto(resp);
                 resolve_assignee_emails(&mut detail.assignees).await?;
-                render(&detail, format)
+                Ok(CardOutput::Detail(detail))
             }
             DependencyAction::Remove {
                 board,
@@ -636,7 +676,7 @@ pub async fn run(
                     .with_ctx(|| format!("remove dependency {depends_on} from card {card_id}"))?;
                 let mut detail = CardDetailOut::from_proto(resp);
                 resolve_assignee_emails(&mut detail.assignees).await?;
-                render(&detail, format)
+                Ok(CardOutput::Detail(detail))
             }
         },
     }
@@ -684,7 +724,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_cards_renders_list() {
+    async fn list_cards_returns_list() {
         let mut mock = MockCardService::new();
         mock.expect_list_cards_by_board()
             .withf(|req| {
@@ -704,20 +744,27 @@ mod tests {
                 })
             });
 
-        run(
+        let out = run(
             CardAction::List {
                 board: "board_1".into(),
                 column: None,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            CardOutput::List(cards) => {
+                assert_eq!(cards.len(), 1);
+                assert_eq!(cards[0].id, "card_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn get_card_renders_detail() {
+    async fn get_card_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_get_card()
             .withf(|req| {
@@ -731,19 +778,20 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Get {
                 card_id: "card_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[tokio::test]
-    async fn create_card_renders_detail() {
+    async fn create_card_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_create_card()
             .withf(|req| {
@@ -759,7 +807,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Create {
                 board: "board_1".into(),
                 column: Some("col_1".into()),
@@ -767,15 +815,16 @@ mod tests {
                 description: Some("Details".into()),
                 priority: Some(PriorityArg::High),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[tokio::test]
-    async fn update_card_renders_detail() {
+    async fn update_card_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_update_card()
             .withf(|req| {
@@ -791,22 +840,23 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Update {
                 card_id: "card_1".into(),
                 title: Some("Updated title".into()),
                 description: None,
                 priority: None,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[tokio::test]
-    async fn move_card_renders_detail() {
+    async fn move_card_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_move_card()
             .withf(|req| {
@@ -816,17 +866,18 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Move {
                 card_id: "card_1".into(),
                 column: "col_2".into(),
                 position: Some(2),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[tokio::test]
@@ -837,19 +888,26 @@ mod tests {
             .times(1)
             .returning(|_| Ok(()));
 
-        run(
+        let out = run(
             CardAction::Delete {
                 card_id: "card_1".into(),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        match out {
+            CardOutput::Deleted(d) => {
+                assert!(d.deleted);
+                assert_eq!(d.card_id, "card_1");
+            }
+            other => panic!("unexpected output: {other:?}"),
+        }
     }
 
     #[tokio::test]
-    async fn add_dependency_renders_detail() {
+    async fn add_dependency_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_add_card_dependency()
             .withf(|req| {
@@ -865,7 +923,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Dependency {
                 action: DependencyAction::Add {
                     board: "board_1".into(),
@@ -873,15 +931,16 @@ mod tests {
                     depends_on: "card_2".into(),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[tokio::test]
-    async fn remove_dependency_renders_detail() {
+    async fn remove_dependency_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_remove_card_dependency()
             .withf(|req| {
@@ -897,7 +956,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Dependency {
                 action: DependencyAction::Remove {
                     board: "board_1".into(),
@@ -905,15 +964,16 @@ mod tests {
                     depends_on: "card_2".into(),
                 },
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[tokio::test]
-    async fn list_cards_table_renders() {
+    async fn list_cards_returns_data_for_column() {
         let mut mock = MockCardService::new();
         mock.expect_list_cards_by_board().times(1).returning(|_| {
             Ok(client::ListCardsByBoardResponse {
@@ -922,20 +982,21 @@ mod tests {
             })
         });
 
-        run(
+        let out = run(
             CardAction::List {
                 board: "board_1".into(),
                 column: Some("col_1".into()),
             },
-            OutputFormat::Table,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::List(_)));
     }
 
     #[tokio::test]
-    async fn create_card_with_defaults_renders() {
+    async fn create_card_with_defaults_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_create_card()
             .withf(|req| {
@@ -951,7 +1012,7 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Create {
                 board: "board_1".into(),
                 column: None,
@@ -959,15 +1020,16 @@ mod tests {
                 description: None,
                 priority: None,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[tokio::test]
-    async fn update_card_with_all_options_renders() {
+    async fn update_card_with_all_options_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_update_card()
             .withf(|req| {
@@ -983,22 +1045,23 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Update {
                 card_id: "card_1".into(),
                 title: Some("T".into()),
                 description: Some("D".into()),
                 priority: Some(PriorityArg::Urgent),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[tokio::test]
-    async fn move_card_with_default_position_renders() {
+    async fn move_card_with_default_position_returns_detail() {
         let mut mock = MockCardService::new();
         mock.expect_move_card()
             .withf(|req| {
@@ -1008,17 +1071,18 @@ mod tests {
             .times(1)
             .returning(|_| Ok(sample_card()));
 
-        run(
+        let out = run(
             CardAction::Move {
                 card_id: "card_1".into(),
                 column: "col_2".into(),
                 position: None,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert!(matches!(out, CardOutput::Detail(_)));
     }
 
     #[test]

@@ -3,7 +3,6 @@
 use crate::error::Result;
 use crate::kanban::client::{self, SearchServiceClient};
 use crate::logger::Logger;
-use crate::output::{OutputFormat, render_list};
 use async_trait::async_trait;
 use clap::Args;
 use serde::Serialize;
@@ -19,15 +18,22 @@ pub struct SearchAction {
 }
 
 /// Serializable search hit.
-#[derive(Serialize)]
-struct SearchHitOut {
-    card_id: String,
-    card_ref: String,
-    board_id: String,
-    project_id: String,
-    title: String,
-    priority: String,
-    status: String,
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct SearchHitOut {
+    /// Card ID.
+    pub card_id: String,
+    /// Human-readable card reference.
+    pub card_ref: String,
+    /// Board ID.
+    pub board_id: String,
+    /// Project ID.
+    pub project_id: String,
+    /// Card title.
+    pub title: String,
+    /// Priority label.
+    pub priority: String,
+    /// Status label.
+    pub status: String,
 }
 
 /// Trait abstracting the Kanban search service for testability.
@@ -77,12 +83,8 @@ pub async fn build_client(
     )))
 }
 
-/// Run a search command.
-pub async fn run(
-    cmd: SearchAction,
-    format: OutputFormat,
-    client: &mut dyn SearchService,
-) -> Result<()> {
+/// Run a search command and return the matching hits.
+pub async fn run(cmd: SearchAction, client: &mut dyn SearchService) -> Result<Vec<SearchHitOut>> {
     let SearchAction { query, limit } = cmd;
 
     let req = client::SearchCardsRequest {
@@ -91,7 +93,7 @@ pub async fn run(
         ..Default::default()
     };
     let resp = client.search_cards(req).await?;
-    let hits: Vec<_> = resp
+    let hits: Vec<SearchHitOut> = resp
         .hits
         .into_iter()
         .map(|h| SearchHitOut {
@@ -104,27 +106,7 @@ pub async fn run(
             status: h.status,
         })
         .collect();
-    let _next_cursor = resp.next_cursor;
-    let _total = resp.total;
-
-    render_list(
-        &hits,
-        &[
-            "REF", "TITLE", "PRIORITY", "STATUS", "BOARD", "PROJECT", "CARD ID",
-        ],
-        |h| {
-            vec![
-                h.card_ref.clone(),
-                h.title.clone(),
-                h.priority.clone(),
-                h.status.clone(),
-                h.board_id.clone(),
-                h.project_id.clone(),
-                h.card_id.clone(),
-            ]
-        },
-        format,
-    )
+    Ok(hits)
 }
 
 #[cfg(test)]
@@ -132,7 +114,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn search_renders_hits() {
+    async fn search_returns_hits() {
         let mut mock = MockSearchService::new();
         mock.expect_search_cards()
             .withf(|req| req.query == "frontend crash" && req.limit == 20)
@@ -157,16 +139,19 @@ mod tests {
                 })
             });
 
-        run(
+        let hits = run(
             SearchAction {
                 query: "frontend crash".into(),
                 limit: None,
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].card_id, "card_1");
+        assert_eq!(hits[0].title, "Fix frontend crash");
     }
 
     #[tokio::test]
@@ -183,51 +168,17 @@ mod tests {
                 })
             });
 
-        run(
+        let hits = run(
             SearchAction {
                 query: "test".into(),
                 limit: Some(5),
             },
-            OutputFormat::Json,
             &mut mock,
         )
         .await
         .unwrap();
-    }
 
-    #[tokio::test]
-    async fn search_table_renders() {
-        let mut mock = MockSearchService::new();
-        mock.expect_search_cards().times(1).returning(|_| {
-            Ok(client::SearchCardsResponse {
-                hits: vec![client::CardSearchHit {
-                    card_id: "card_1".into(),
-                    card_ref: "PROJ-1".into(),
-                    board_id: "board_1".into(),
-                    project_id: "proj_1".into(),
-                    title: "Fix".into(),
-                    description_snippet: String::new(),
-                    priority: "high".into(),
-                    status: "open".into(),
-                    label_names: vec![],
-                    assignee_subjects: vec![],
-                    score: 1.0,
-                }],
-                next_cursor: String::new(),
-                total: 1,
-            })
-        });
-
-        run(
-            SearchAction {
-                query: "fix".into(),
-                limit: None,
-            },
-            OutputFormat::Table,
-            &mut mock,
-        )
-        .await
-        .unwrap();
+        assert!(hits.is_empty());
     }
 
     #[tokio::test]

@@ -30,8 +30,6 @@ pub mod manifest_params;
 pub mod manifests;
 /// OpenBao (HashiCorp Vault fork) API client.
 pub mod openbao;
-/// CLI output helpers (tables, JSON, YAML, step banners).
-pub mod output;
 /// Manifest-anchored profile override system.
 pub mod profiles;
 /// OpenBao secret reading and seeding.
