@@ -13,7 +13,7 @@ fn main() {
         env::var("CARGO_MANIFEST_DIR")
             .unwrap_or_else(|e| panic!("CARGO_MANIFEST_DIR not set: {e}")),
     );
-    let lima_yaml_src = manifest_dir.join("../lima-sunbeam.yaml");
+    let lima_yaml_src = manifest_dir.join("lima-sunbeam.yaml");
     let lima_yaml_dst = out_dir.join("lima-sunbeam.yaml");
     fs::copy(&lima_yaml_src, &lima_yaml_dst)
         .unwrap_or_else(|_| panic!("lima-sunbeam.yaml not found at {}", lima_yaml_src.display()));
@@ -64,6 +64,17 @@ fn main() {
         ")]\n\n",
         "include!(concat!(env!(\"OUT_DIR\"), \"/sunbeam.kanban.v1.rs\"));\n"
     );
+    fs::create_dir_all(
+        generated_rs
+            .parent()
+            .expect("generated.rs must have a parent directory"),
+    )
+    .unwrap_or_else(|e| {
+        panic!(
+            "failed to create {}: {e}",
+            generated_rs.parent().unwrap().display()
+        )
+    });
     fs::write(&generated_rs, generated_allow)
         .unwrap_or_else(|e| panic!("failed to write {}: {e}", generated_rs.display()));
 
@@ -83,8 +94,8 @@ fn main() {
     let date = chrono::Utc::now().format("%Y-%m-%d").to_string();
     println!("cargo:rustc-env=SUNBEAM_BUILD_DATE={date}");
 
-    // Rebuild if git HEAD changes (workspace root is two levels up)
-    println!("cargo:rerun-if-changed=../../.git/HEAD");
+    // Rebuild if git HEAD changes
+    println!("cargo:rerun-if-changed=.git/HEAD");
 }
 
 fn git_commit_sha() -> String {

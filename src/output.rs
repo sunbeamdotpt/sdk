@@ -1,7 +1,7 @@
 //! CLI output formatting (table, JSON, YAML).
 
+use crate::error::{Result, SunbeamError};
 use serde::Serialize;
-use sunbeam_sdk::error::Result;
 
 // ---------------------------------------------------------------------------
 // OutputFormat
@@ -62,7 +62,6 @@ pub fn render_list<T: Serialize>(
 }
 
 /// Read JSON input from a `--data` flag value or stdin when the value is `"-"`.
-#[cfg(test)]
 pub fn read_json_input(flag: Option<&str>) -> Result<serde_json::Value> {
     let raw = match flag {
         Some("-") | None => {
@@ -72,8 +71,7 @@ pub fn read_json_input(flag: Option<&str>) -> Result<serde_json::Value> {
         }
         Some(v) => v.to_string(),
     };
-    serde_json::from_str(&raw)
-        .map_err(|e| sunbeam_sdk::error::SunbeamError::Other(format!("invalid JSON input: {e}")))
+    serde_json::from_str(&raw).map_err(|e| SunbeamError::Other(format!("invalid JSON input: {e}")))
 }
 
 /// Return an aligned text table. Columns padded to max width.

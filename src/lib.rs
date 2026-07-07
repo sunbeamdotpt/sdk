@@ -6,10 +6,10 @@
 #![cfg_attr(not(test), deny(clippy::unwrap_used))]
 // just keeps syntax consistent
 #![deny(clippy::needless_borrow)]
-//! sunbeam-sdk — SDK for Sunbeam CLI operations, workspace management,
-//! Kubernetes manifests, VPN, and workflow orchestration.
+//! sdk — SDK for Sunbeam workspace management, Kubernetes manifests, VPN,
+//! and workflow orchestration.
 #[macro_use]
-/// Error types and result aliases for sunbeam-sdk.
+/// Error types and result aliases for the SDK.
 pub mod error;
 
 /// OAuth2 / SSO authentication commands.
