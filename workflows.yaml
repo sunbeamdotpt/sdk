@@ -1,19 +1,17 @@
-# workflows.yaml -- sunbeam CLI CI pipeline
+# workflows.yaml -- sdk CI pipeline
 #
 # Runs on every push via wfe-server webhook → ci workflow.
-# Workspace crates: the top-level `sunbeam` binary and `sunbeam-sdk`
-# (publishable library). Only `sunbeam-sdk` ships to the sunbeam cargo
-# registry. `sunbeam-net` is consumed as an external git dependency.
+# This is a single-package crate (`sdk`). `sunbeam-net` is consumed as an
+# external git dependency.
 #
 # Binary distribution is handled out-of-band via `dist/` tarballs —
 # cross-compilation for darwin/linux isn't wired into this pipeline yet
 # (no Dockerfile, no `cross` runner), so the image step is intentionally
 # omitted. Revisit once we have a cross-build story.
 #
-# sunbeam-sdk integration tests under sunbeam-sdk/tests/ use
-# docker-compose and are NOT run in CI — they want real services that
-# wfe-provided service pods would have to mirror by hand. Lib tests
-# only for now.
+# Integration tests under tests/ use docker-compose and are NOT run in CI —
+# they want real services that wfe-provided service pods would have to mirror
+# by hand. Lib tests only for now.
 #
 # === Prerequisites ===
 #
@@ -108,7 +106,7 @@ workflows:
           <<: *ci_config
           run: |
             set -euo pipefail
-            cd /workspace/cli
+            cd /workspace/sdk
             cargo fmt --all -- --check
             echo "##wfe[output fmt_ok=true]"
 
@@ -120,31 +118,18 @@ workflows:
           <<: *ci_long_config
           run: |
             set -euo pipefail
-            cd /workspace/cli
-            cargo clippy --workspace --all-targets -- -D warnings
+            cd /workspace/sdk
+            cargo clippy --all-targets -- -D warnings
             echo "##wfe[output clippy_ok=true]"
 
-  # === test-unit: lib tests across the workspace (no integration) ===
+  # === test-unit: library tests only (no integration) ===
 
   - id: test-unit
     name: Unit Tests
     version: 1
     outputs:
-      sunbeam_ok: bool
       sdk_ok: bool
     steps:
-      - name: sunbeam-tests
-        type: kubernetes
-        outputs:
-          - name: sunbeam_ok
-        config:
-          <<: *ci_long_config
-          run: |
-            set -euo pipefail
-            cd /workspace/cli
-            cargo nextest run -p sunbeam --lib
-            echo "##wfe[output sunbeam_ok=true]"
-
       - name: sdk-tests
         type: kubernetes
         outputs:
@@ -153,8 +138,8 @@ workflows:
           <<: *ci_long_config
           run: |
             set -euo pipefail
-            cd /workspace/cli
-            cargo nextest run -p sunbeam-sdk --lib
+            cd /workspace/sdk
+            cargo nextest run -p sdk --lib
             echo "##wfe[output sdk_ok=true]"
 
   # === tag: read workspace version from the top-level Cargo.toml ===
@@ -175,7 +160,7 @@ workflows:
           <<: *ci_config
           run: |
             set -euo pipefail
-            cd /workspace/cli
+            cd /workspace/sdk
             VERSION=$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
             echo "Version: $VERSION"
             echo "##wfe[output version=$VERSION]"
@@ -188,7 +173,7 @@ workflows:
           <<: *ci_config
           run: |
             set -euo pipefail
-            cd /workspace/cli
+            cd /workspace/sdk
             git fetch --tags
             TAG="v${VERSION}"
             if git tag -l "$TAG" | grep -q "$TAG"; then
@@ -208,7 +193,7 @@ workflows:
           <<: *ci_config
           run: |
             set -euo pipefail
-            cd /workspace/cli
+            cd /workspace/sdk
             TAG="v${VERSION}"
             git config user.email "wfe-ci@sunbeam.pt"
             git config user.name "wfe-ci"
@@ -216,7 +201,7 @@ workflows:
             git push origin "$TAG"
             echo "##wfe[output tag_created=true]"
 
-  # === publish: sunbeam-sdk only (the binary doesn't publish) ===
+  # === publish: sdk ===
 
   - id: publish
     name: Publish
@@ -232,8 +217,8 @@ workflows:
           <<: *ci_long_config
           run: |
             set -euo pipefail
-            cd /workspace/cli
-            cargo publish -p sunbeam-sdk --registry sunbeam 2>&1 || echo "Already published"
+            cd /workspace/sdk
+            cargo publish -p sdk --registry sunbeam 2>&1 || echo "Already published"
             echo "##wfe[output published=true]"
         error_behavior:
           type: retry
@@ -261,17 +246,17 @@ workflows:
           run: |
             set -euo pipefail
             TAG="v${VERSION}"
-            tea login add --name sunbeam --url https://src.sunbeam.pt --token "$TEA_TOKEN" 2>/dev/null || true
+            tea login add --name sunbeam --url https://github.com --token "$TEA_TOKEN" 2>/dev/null || true
             if tea release create \
-              --repo studio/cli \
+              --repo sunbeamdotpt/sdk \
               --tag "$TAG" \
               --title "$TAG" \
-              --note "sunbeam-sdk ${VERSION} published to the sunbeam registry. Binaries are built out-of-band and attached manually." 2>&1; then
+              --note "sdk ${VERSION} published to the sunbeam registry. Binaries are built out-of-band and attached manually." 2>&1; then
               echo "##wfe[output release_created=true]"
             else
               echo "##wfe[output release_created=false]"
             fi
-            echo "##wfe[output release_url=https://src.sunbeam.pt/studio/cli/releases/tag/${TAG}]"
+            echo "##wfe[output release_url=https://github.com/sunbeamdotpt/sdk/releases/tag/${TAG}]"
 
   # === ci: top-level orchestrator ===
 
@@ -308,7 +293,6 @@ workflows:
       - name: run-tests
         type: workflow
         outputs:
-          - name: sunbeam_ok
           - name: sdk_ok
         config:
           workflow: test-unit
