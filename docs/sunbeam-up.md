@@ -596,7 +596,7 @@ You almost never type the root token manually. Every `sunbeam secrets` subcomman
 3. **Local keystore:** Load `~/.sunbeam/vault/<domain>.enc`, decrypt with machine salt + domain, return `root_token` field.
 4. **Fail:** `SunbeamError::Config("No OpenBao token found. Run sunbeam up to initialize, or pass --token")`
 
-This is implemented in `sunbeam-sdk/src/secrets_cli.rs` in the `read_token()` function:
+This is implemented in `src/secrets.rs` in the `read_token()` function:
 
 ```rust
 async fn read_token() -> Result<String> {
@@ -658,8 +658,8 @@ There is no dedicated CLI command to print the plaintext token (by design — it
 cat > /tmp/export_token.rs << 'EOF'
 fn main() {
     let domain = std::env::args().nth(1).expect("usage: export_token <domain>");
-    // This uses the internal API; run from the sunbeam-sdk crate directory
-    let ks = sunbeam_sdk::vault_keystore::load_keystore(&domain).unwrap();
+    // This uses the internal API; run from the sdk crate directory
+    let ks = sdk::vault_keystore::load_keystore(&domain).unwrap();
     println!("{}", ks.root_token);
 }
 EOF
@@ -682,12 +682,12 @@ The `vault_keystore::export_plaintext(domain)` function exists for exactly this 
 **Example using a test harness:**
 
 ```bash
-cd /path/to/sunbeam-sdk
+cd /path/to/sdk
 cat > /tmp/export.rs << 'EOF'
 #[tokio::main]
 async fn main() {
     let domain = "sunbeam.pt";
-    let json = sunbeam_sdk::vault_keystore::export_plaintext(domain).unwrap();
+    let json = sdk::vault_keystore::export_plaintext(domain).unwrap();
     println!("{}", json);
 }
 EOF
@@ -698,7 +698,7 @@ EOF
 #### Method 4 — Programmatic Access in Rust
 
 ```rust
-use sunbeam_sdk::vault_keystore;
+use sdk::vault_keystore;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let domain = "sunbeam.pt";
@@ -834,7 +834,7 @@ There is no automated rotation command yet. Here is the manual process:
 If you suspect the keystore is corrupted, you can verify it:
 
 ```rust
-use sunbeam_sdk::vault_keystore;
+use sdk::vault_keystore;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ks = vault_keystore::verify_vault_keys("sunbeam.pt")?;

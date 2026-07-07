@@ -1,6 +1,6 @@
 # Sunbeam Service Discovery Labels
 
-Migration guide: replacing hardcoded service definitions in `sunbeam-sdk/src/registry/services.rs` with Kubernetes label-based discovery.
+Migration guide: replacing hardcoded service definitions in `src/services.rs` with Kubernetes label-based discovery.
 
 ---
 

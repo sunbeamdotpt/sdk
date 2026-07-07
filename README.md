@@ -1,164 +1,43 @@
-# Sunbeam CLI
+# Sunbeam SDK
 
-**Sunbeam CLI** is a local development stack manager for Kubernetes-based applications. It simplifies cluster management, service operations, secret handling, and manifest deployment.
+The **Sunbeam SDK** is a Rust library for building Sunbeam-compatible tooling:
+workspace management, Kubernetes manifest operations, VPN integration, OpenBao
+secrets handling, and WFE workflow orchestration.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org/)
 
-## Quick Start
+## Using the SDK
 
-```bash
-# Install from source
-cargo install --path sunbeam
+Add it to your `Cargo.toml`:
 
-# Start your local cluster
-sunbeam up
-
-# Apply manifests
-sunbeam apply
-
-# Check status
-sunbeam status
+```toml
+[dependencies]
+sdk = { git = "https://github.com/sunbeamdotpt/sdk" }
 ```
 
-## Features
-
-- **Cluster Management**: Bring up local Kubernetes clusters with cert-manager, Linkerd, TLS
-- **Service Operations**: Status, logs, restart, health checks across namespaces
-- **Secret Management**: OpenBao KV seeding, DB engine config, VSO verification
-- **Manifest Management**: Kustomize + Helm builds with domain/email substitution
-- **User Management**: Kratos identity CRUD, onboarding/offboarding with mailbox and project provisioning
-- **Image Building**: Buildkit-based builds with registry push and rollout deploy
-- **Project Management**: Unified ticket management across Planka and Gitea
-- **Self-Update**: Binary update from the latest mainline commit
-- **Tool Bundling**: kustomize and helm binaries embedded at compile time
-
-## Installation
-
-### Prerequisites
-
-- Rust (2024 edition)
-- Docker
-- Lima (for local VM management)
-- A running Kubernetes cluster (kubectl context `sunbeam` for local dev)
-
-### Install from Source
+## Building
 
 ```bash
-git clone https://src.sunbeam.pt/studio/cli.git
-cd cli
-cargo install --path sunbeam
-sunbeam --help
+cargo build --release
+cargo nextest run --lib
+cargo clippy --all-targets -- -D warnings
+cargo fmt --all -- --check
 ```
 
-### Self-Update
+## Modules
 
-Once installed, sunbeam can update itself:
+- `config` — Context-based configuration file I/O.
+- `kube` — kube-rs client setup and manifest apply helpers.
+- `manifests` — Kustomize build, domain substitution, and namespace filtering.
+- `profiles` — Manifest-anchored profile override system.
+- `workflows` — WFE workflow definitions, primitives, and step implementations.
+- `kanban` — Kanban board/project management gRPC client.
+- `secrets` / `openbao` / `vault_keystore` — OpenBao / Vault operations.
+- `vpn_cmds` / `vpn_env` — VPN daemon control and environment detection.
+- `logger` / `logging` — Structured logging subsystems.
 
-```bash
-sunbeam update
-```
-
-## Usage
-
-### Basic Commands
-
-```bash
-sunbeam up                      # Full cluster bring-up
-sunbeam status                  # Pod health across all namespaces
-sunbeam status ory              # Scoped to namespace
-sunbeam apply                   # Build + apply all manifests
-sunbeam apply ory               # Apply single namespace
-sunbeam logs ory/kratos         # Stream logs
-sunbeam logs ory/kratos -f      # Follow mode
-sunbeam restart                 # Rolling restart all services
-sunbeam restart ory/kratos      # Restart specific deployment
-```
-
-### Configuration
-
-```bash
-sunbeam config set --domain sunbeam.pt --host user@server.example.com
-sunbeam config get
-sunbeam config use-context production
-```
-
-### Building and Deploying
-
-```bash
-sunbeam build proxy             # Build image
-sunbeam build proxy --push      # Build + push to registry
-sunbeam build proxy --deploy    # Build + push + apply + restart
-sunbeam build proxy --no-cache  # Disable buildkit cache
-sunbeam mirror                  # Mirror amd64-only images
-```
-
-### User Management
-
-```bash
-sunbeam user list
-sunbeam user create user@example.com --name "User Name"
-sunbeam user set-password user@example.com
-sunbeam user onboard new@example.com --name "New User" --department Engineering
-sunbeam user offboard departed@example.com
-sunbeam user recover user@example.com
-```
-
-### Secret Management
-
-```bash
-sunbeam seed                    # Generate + store all credentials in OpenBao
-sunbeam verify                  # E2E VSO + OpenBao integration test
-```
-
-### Project Management
-
-```bash
-sunbeam pm list                 # List tickets (Planka + Gitea)
-sunbeam pm show p:42            # Show Planka card
-sunbeam pm show g:studio/cli#7  # Show Gitea issue
-sunbeam pm create "Title" --source gitea --target studio/cli
-sunbeam pm assign p:42 user@example.com
-sunbeam pm close g:studio/cli#7
-```
-
-### Health Checks
-
-```bash
-sunbeam check                   # Run all functional probes
-sunbeam check devtools          # Scoped to namespace
-```
-
-### Passthrough
-
-```bash
-sunbeam bao status              # bao CLI inside OpenBao pod
-```
-
-### Production
-
-```bash
-sunbeam config set --domain sunbeam.pt
-sunbeam config use-context production
-sunbeam connect                 # Bring up the embedded VPN daemon
-sunbeam service apply           # Apply all manifests over the VPN transport
-```
-
-## Running Tests
-
-```bash
-cargo nextest run --workspace   # 232 tests
-cargo test --workspace          # Alternative
-```
-
-## Python CLI (Legacy)
-
-The original Python implementation is in the `sunbeam/` package and remains functional:
-
-```bash
-pip install -e .
-python -m sunbeam --help
-```
+See `src/lib.rs` for the full module list and `AGENTS.md` for project conventions.
 
 ## License
 

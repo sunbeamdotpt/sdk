@@ -87,10 +87,9 @@ impl ApplyManifest {
 }
 ```
 
-The CLI entry point creates the root logger and hands it to the top-level command:
+A consuming binary creates the root logger and hands it to the top-level command:
 
 ```rust
-// src/main.rs or cli dispatch
 let root = Logger::new(TracingSink);
 let cmd_logger = root.with_field("verb", &"up");
 UpCommand::new(cmd_logger).run().await;
