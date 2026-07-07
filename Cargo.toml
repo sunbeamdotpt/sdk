@@ -10,6 +10,16 @@ description = "Sunbeam Studios SDK"
 # Internal
 sunbeam-net = { git = "https://github.com/sunbeamdotpt/vpn" }
 
+# Sunbeam service framework — client stack for remote services.
+sunbeam-g2v = { version = "0.5.2", default-features = false, features = ["client", "client-connectrpc", "auth", "tracing", "logging"] }
+
+# ConnectRPC runtime and generated sso-gateway stubs.
+connectrpc = { version = "0.7", features = ["client"] }
+
+# Buffa protobuf message runtime used by generated sso-gateway stubs.
+buffa = { version = "0.7", features = ["json"] }
+buffa-types = { version = "0.7", features = ["json"] }
+
 # Core
 thiserror = "1"
 anyhow = "1"
@@ -37,6 +47,8 @@ k8s-openapi = { version = "0.27", features = ["latest"] }
 # HTTP / TLS
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 bytes = "1.0"
+http = "1"
+http-body = "1"
 
 # Crypto
 rsa = "0.9"
@@ -100,3 +112,4 @@ rustls = { version = "0.23", features = ["aws-lc-rs"] }
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 tonic-prost-build = "0.14"
+connectrpc-build = "0.7"
