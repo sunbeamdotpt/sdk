@@ -85,6 +85,56 @@ fn main() {
         );
     }
 
+    // Generate sso-gateway ConnectRPC client stubs for the auth module.
+    // Protos are fetched from the Buf Schema Registry at build time so they are
+    // not checked into the repository and the generated Rust code lives only in
+    // OUT_DIR.
+    let sso_export_dir = out_dir.join("sso-gateway-protos");
+    fs::create_dir_all(&sso_export_dir)
+        .unwrap_or_else(|e| panic!("failed to create {}: {e}", sso_export_dir.display()));
+
+    let buf_export = Command::new("buf")
+        .args([
+            "export",
+            "buf.build/sunbeamdotpt/sso-gateway",
+            "--output",
+            &sso_export_dir.to_string_lossy(),
+        ])
+        .output()
+        .unwrap_or_else(|e| {
+            panic!(
+                "failed to run `buf export buf.build/sunbeamdotpt/sso-gateway`; \
+                 ensure `buf` is installed and on PATH: {e}"
+            )
+        });
+    if !buf_export.status.success() {
+        panic!(
+            "`buf export buf.build/sunbeamdotpt/sso-gateway` failed: {}",
+            String::from_utf8_lossy(&buf_export.stderr)
+        );
+    }
+
+    let sso_protos = &[
+        "iam/v1/application.proto",
+        "iam/v1/common.proto",
+        "iam/v1/federation.proto",
+        "iam/v1/identity.proto",
+        "iam/v1/identity_self_service.proto",
+        "iam/v1/oauth2_consent.proto",
+        "iam/v1/oauth2_device.proto",
+        "iam/v1/permission.proto",
+        "iam/v1/scim.proto",
+        "iam/v1/tenant.proto",
+    ];
+    let sso_proto_paths: Vec<_> = sso_protos.iter().map(|p| sso_export_dir.join(p)).collect();
+
+    connectrpc_build::Config::new()
+        .files(&sso_proto_paths)
+        .includes(&[&sso_export_dir])
+        .include_file("_connectrpc.rs")
+        .compile()
+        .unwrap_or_else(|e| panic!("failed to compile sso-gateway protos: {e}"));
+
     // Set version info from git
     let commit = git_commit_sha();
     println!("cargo:rustc-env=SUNBEAM_COMMIT={commit}");
