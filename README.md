@@ -25,22 +25,6 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-## Modules
-
-- `auth` — OAuth2 / SSO token handling.
-- `config` — Context-based configuration file I/O.
-- `kanban` — Kanban board/project management gRPC client.
-- `wfectl` — WFE workflow engine remote gRPC client.
-- `kube` — kube-rs client setup and manifest apply helpers.
-- `manifests` — Kustomize build, domain substitution, and namespace filtering.
-- `manifest_params` — Runtime manifest parameter discovery.
-- `profiles` — Manifest-anchored profile override system.
-- `secrets` / `openbao` / `vault_keystore` — OpenBao / Vault operations.
-- `vpn` — VPN daemon control and environment detection.
-- `logger` / `logging` — Structured logging subsystems.
-
-See `src/lib.rs` for the full module list and `AGENTS.md` for project conventions.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
