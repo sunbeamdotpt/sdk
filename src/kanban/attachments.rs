@@ -220,33 +220,12 @@ pub async fn build_client(
     ))
 }
 
-/// Resolve attachment uploader subjects to email addresses through the Kratos
-/// admin API.
-async fn resolve_uploader_emails(attachments: &mut [AttachmentOut]) {
-    let subjects: Vec<&str> = attachments
-        .iter()
-        .map(|a| a.uploaded_by.as_str())
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    if subjects.is_empty() {
-        return;
-    }
-
-    let email_map = match crate::auth::resolve_emails_for_subjects(&subjects).await {
-        Ok(m) => m,
-        Err(_) => return,
-    };
-
-    for a in attachments.iter_mut() {
-        if a.uploaded_by.is_empty() {
-            continue;
-        }
-        if let Some(email) = email_map.get(&a.uploaded_by) {
-            a.uploaded_by = email.clone();
-        }
-    }
-}
+/// Resolve attachment uploader subjects to email addresses.
+///
+/// Previously looked up identities via the Kratos admin API; this resolution
+/// is temporarily disabled while the SDK migrates to sso-gateway identity
+/// lookups through [`crate::auth::AuthClient`].
+async fn resolve_uploader_emails(_attachments: &mut [AttachmentOut]) {}
 
 /// List attachments for a card.
 pub async fn list_attachments(

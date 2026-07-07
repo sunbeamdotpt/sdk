@@ -340,40 +340,12 @@ pub async fn build_client(
     )))
 }
 
-/// Resolve assignee subjects to email addresses through the Kratos admin API.
-async fn resolve_assignee_emails(assignees: &mut [serde_json::Value]) -> Result<()> {
-    let subjects: Vec<&str> = assignees
-        .iter()
-        .filter_map(|a| {
-            a.get("subject")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-        })
-        .collect();
-
-    if subjects.is_empty() {
-        return Ok(());
-    }
-
-    let email_map = crate::auth::resolve_emails_for_subjects(&subjects).await?;
-
-    for assignee in assignees.iter_mut() {
-        let Some(subject) = assignee
-            .get("subject")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-        else {
-            continue;
-        };
-        if let Some(email) = email_map.get(subject)
-            && let Some(obj) = assignee.as_object_mut()
-        {
-            obj.insert(
-                "email".to_string(),
-                serde_json::Value::String(email.clone()),
-            );
-        }
-    }
+/// Resolve assignee subjects to email addresses.
+///
+/// Previously looked up identities via the Kratos admin API; this resolution
+/// is temporarily disabled while the SDK migrates to sso-gateway identity
+/// lookups through [`crate::auth::AuthClient`].
+async fn resolve_assignee_emails(_assignees: &mut [serde_json::Value]) -> Result<()> {
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 //! Kanban project management via gRPC.
 
-use crate::error::{Result, ResultExt, SunbeamError};
+use crate::error::{Result, SunbeamError};
 
 pub mod aggregated;
 pub mod attachments;
@@ -47,9 +47,9 @@ pub fn resolve_server_url(url_override: Option<&str>) -> Result<String> {
 
 /// Resolve and validate a bearer token for authenticated RPCs.
 pub async fn require_token() -> Result<String> {
-    crate::auth::get_token()
-        .await
-        .with_ctx(|| "no valid authentication token available".to_string())
+    Err(SunbeamError::identity(
+        "provide an explicit bearer token; AuthClient no longer caches tokens globally",
+    ))
 }
 
 /// Format a chrono UTC timestamp as a short ISO 8601 string.

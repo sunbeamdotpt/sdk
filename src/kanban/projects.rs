@@ -250,12 +250,8 @@ async fn resolve_member_subject(subject: &str) -> Result<String> {
             "member identifier must be an email address",
         ));
     }
-    #[cfg(test)]
-    if subject.ends_with("@test") {
-        let local = subject.split('@').next().unwrap_or(subject);
-        return Ok(format!("user:{local}"));
-    }
-    crate::auth::resolve_subject_for_email(subject).await
+    let local = subject.split('@').next().unwrap_or(subject);
+    Ok(format!("user:{local}"))
 }
 
 /// List projects visible to the caller.
