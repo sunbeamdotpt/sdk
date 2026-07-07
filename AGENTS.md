@@ -41,8 +41,6 @@ user to install it.
 - **Crypto:** rsa, sha2, hmac, blake2, chacha20poly1305, hkdf, base64, rand,
   aes-gcm, argon2, crypto_box, x25519-dalek, rcgen
 - **Email:** lettre (SMTP with tokio + rustls)
-- **VCS:** gix, repo-rs-cmd, repo-rs-engine, repo-rs-model, repo-rs-git,
-  repo-rs-manifest
 - **Secrets:** vaultrs (OpenBao / Vault)
 - **Networking/VPN:** boringtun, smoltcp, ipnet, zstd
 - **Testing:** cargo nextest, wiremock, pretty_assertions, tokio-test
@@ -56,39 +54,23 @@ user to install it.
 ├── src/
 │   ├── lib.rs              # Module declarations, #![warn(missing_docs)]
 │   ├── error.rs            # SunbeamError, Result, ResultExt, bail! macro
-│   ├── output.rs           # Table/JSON/YAML rendering, step/ok/warn banners
+│   ├── auth.rs             # OAuth2 / SSO login flow
+│   ├── config.rs           # ~/.sunbeam/config.json (Context, active_context global)
+│   ├── constants.rs        # Shared constants
+│   ├── kube.rs             # kube-rs client init, server-side apply, rollout restart
 │   ├── logging/            # Three-mode tracing subscriber (line, json, threaded)
 │   ├── logger.rs           # Structured logger with inherited fields
-│   ├── config.rs           # ~/.sunbeam/config.json (Context, Profile, active_context global)
-│   ├── kube.rs             # kube-rs client init, server-side apply, rollout restart
-│   ├── tools.rs            # Embedded binary extraction (kustomize, helm)
-│   ├── manifests.rs        # Kustomize build + domain substitution + namespace filtering + apply
 │   ├── manifest_params.rs  # Runtime parameter discovery (--set) and override application
-│   ├── registry.rs         # Service registry discovery from cluster annotations
-│   ├── services.rs         # Service status/logs/restart queries
-│   ├── secrets.rs          # OpenBao init/unseal/seed, VSO secret sync, port-forward
-│   ├── checks.rs           # Functional health checks
-│   ├── users.rs            # Kratos identity management (onboard/offboard/CRUD)
-│   ├── auth.rs             # OAuth2 / SSO login flow
+│   ├── manifests.rs        # Kustomize build + domain substitution + namespace filtering + apply
 │   ├── openbao.rs          # OpenBao HTTP client
+│   ├── output.rs           # Table/JSON/YAML rendering helpers
+│   ├── profiles/           # Manifest profile system (shortcuts, rules, validation)
+│   ├── secrets.rs          # OpenBao init/unseal/seed, VSO secret sync, port-forward
 │   ├── vault_keystore.rs   # Vault transit keystore operations
-│   ├── update.rs           # Self-update from Gitea CI artifacts
-│   ├── doctor.rs           # Connectivity diagnostics
-│   ├── discovery.rs        # Service discovery via cluster annotations
-│   ├── describe.rs         # kubectl describe wrappers
-│   ├── exec.rs             # Pod exec and interactive shell helpers
-│   ├── port_forward.rs     # Kubernetes port-forward utilities
-│   ├── proxy.rs            # Local proxy helpers
-│   ├── topo.rs             # Topological sort for workspace project graphs
-│   ├── vcs/                # Git commands (status, log, branch, clone, commit, push, pull, ...)
 │   ├── vpn_cmds.rs         # VPN connect/disconnect/status
 │   ├── vpn_env.rs          # VPN daemon socket and environment detection
-│   ├── workflows/          # WFE workflow definitions, primitives, and step implementations
 │   ├── kanban/             # Kanban board/project management gRPC client
-│   ├── project/            # Per-project build/test/deploy (sunbeam.yaml parsing + runner)
-│   ├── operations/         # Workspace-level commands (compose, stack)
-│   └── profiles/           # Manifest profile system (shortcuts, rules, validation)
-├── sunbeam.yaml            # This repo's own project config (build, test, lint, fmt targets)
+│   └── wfectl/             # Remote workflow engine gRPC client
 ├── workflows.yaml          # WFE CI pipeline definition (lint → test-unit → tag → publish → release)
 └── lima-sunbeam.yaml       # Lima VM spec for local k3s + Cilium + BuildKit provisioning
 ```
@@ -122,8 +104,6 @@ cargo doc --no-deps
   `TestWriter`.
 - `error.rs` tests cover exit codes, display formatting, context extensions, and
   the `bail!` macro.
-- `workflows/` tests verify step registration and workflow definition shape
-  without executing against a cluster.
 - `kanban/` commands are tested behind `mockall::automock` service traits; the
   kanban module targets >90% line coverage via `cargo llvm-cov`.
 
@@ -151,25 +131,12 @@ with variants: `Kube`, `Config`, `Network`, `Secrets`, `Build`, `Identity`,
 - **Apply Semaphore:** A global `tokio::sync::Semaphore(2)` in `kube.rs` limits
   concurrent manifest applications to protect single-node k3s clusters.
 
-### Workflows
+### Remote Services
 
-Cluster bring-up and tear-down are orchestrated through the WFE workflow
-engine:
-
-- **Primitives** (`workflows/primitives/`) — atomic, reusable steps:
-  `ApplyManifest`, `WaitForRollout`, `CreatePGRole`, `CreatePGDatabase`,
-  `EnsureNamespace`, `CreateK8sSecret`, `EnableVaultAuth`, `SeedKVPath`,
-  `WriteKVPath`, `CollectCredentials`, etc.
-- **Up steps** (`workflows/up/steps/`) — Lima VM, Cilium, BuildKit, TLS
-  certificates, image builds, VPN pre-auth keys.
-- **Down steps** (`workflows/down/steps/`) — namespace teardown.
-- **Verify steps** (`workflows/verify/steps/`) — VSO + OpenBao integration
-  verification.
-- **Shared steps** (`workflows/steps/`) — OpenBao init/unseal, Postgres wait,
-  Kratos admin identity seed.
-
-Workflow definitions are versioned Rust structs registered with a `WorkflowHost`
-at runtime.
+- **`kanban/`** — gRPC client for the Sunbeam Kanban service: boards, cards,
+  projects, templates, attachments, search, and real-time subscriptions.
+- **`wfectl/`** — gRPC client for the WFE workflow engine: list, run, logs,
+  cancel, suspend, resume, and publish workflows remotely.
 
 ### Configuration
 
@@ -182,8 +149,7 @@ multiple named `Context`s, each with:
 - `acme_email` — Let's Encrypt / cert-manager email
 - `vpn_url` — optional VPN endpoint
 
-Per-project build config is read from `sunbeam.yaml` in the current directory or
-workspace root. Per-workspace config is read from `sunbeam.workspace.yaml`.
+SDK consumers read per-domain config from `~/.sunbeam/config.json`.
 
 ### Logging
 
