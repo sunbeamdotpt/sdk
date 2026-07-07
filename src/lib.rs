@@ -38,10 +38,8 @@ pub mod profiles;
 pub mod secrets;
 /// Vault transit keystore operations.
 pub mod vault_keystore;
-/// VPN connect/disconnect/status commands.
-pub mod vpn_cmds;
-/// VPN daemon socket and environment detection.
-pub mod vpn_env;
+/// VPN integration — daemon control and environment detection.
+pub mod vpn;
 /// Workflow engine remote control client.
 pub mod wfectl;
 

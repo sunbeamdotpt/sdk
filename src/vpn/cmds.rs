@@ -11,7 +11,7 @@
 use crate::config::active_context;
 use crate::error::{Result, SunbeamError};
 
-use crate::vpn_env::vpn_state_dir;
+use crate::vpn::env::vpn_state_dir;
 
 /// Run `sunbeam connect`.
 ///
@@ -176,7 +176,7 @@ async fn run_daemon_foreground() -> Result<()> {
         // Bind the local k8s proxy on 16579 — far enough away from common
         // conflicts (6443 = kube API) that we shouldn't collide on dev
         // machines. TODO: make this configurable.
-        proxy_bind: match crate::vpn_env::VPN_K8S_PROXY.parse() {
+        proxy_bind: match crate::vpn::env::VPN_K8S_PROXY.parse() {
             Ok(addr) => addr,
             // VPN_K8S_PROXY is a compile-time static socket address string.
             Err(_) => unreachable!(),

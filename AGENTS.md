@@ -67,8 +67,9 @@ user to install it.
 │   ├── profiles/           # Manifest profile system (shortcuts, rules, validation)
 │   ├── secrets.rs          # OpenBao init/unseal/seed, VSO secret sync, port-forward
 │   ├── vault_keystore.rs   # Vault transit keystore operations
-│   ├── vpn_cmds.rs         # VPN connect/disconnect/status
-│   ├── vpn_env.rs          # VPN daemon socket and environment detection
+│   ├── vpn/                  # VPN daemon control and environment detection
+│   │   ├── cmds.rs           # connect/disconnect/status commands
+│   │   └── env.rs            # daemon socket and environment injection
 │   ├── kanban/             # Kanban board/project management gRPC client
 │   └── wfectl/             # Remote workflow engine gRPC client
 ├── workflows.yaml          # WFE CI pipeline definition (lint → test-unit → tag → publish → release)

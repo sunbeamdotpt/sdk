@@ -83,10 +83,10 @@ pub async fn get_client() -> Result<Client> {
 
     // VPN-aware: when the daemon is running AND the active context
     // has a vpn_url, route through the loopback k8s proxy.
-    if crate::vpn_env::vpn_daemon_socket_exists()
+    if crate::vpn::env::vpn_daemon_socket_exists()
         && !crate::config::active_context().vpn_url.is_empty()
     {
-        let url = format!("https://{}", crate::vpn_env::VPN_K8S_PROXY);
+        let url = format!("https://{}", crate::vpn::env::VPN_K8S_PROXY);
         config.cluster_url = url.parse().map_err(|e| {
             SunbeamError::kube(format!("Failed to parse VPN k8s proxy URL {url}: {e}"))
         })?;

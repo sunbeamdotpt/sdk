@@ -36,7 +36,7 @@ cargo fmt --all -- --check
 - `manifest_params` — Runtime manifest parameter discovery.
 - `profiles` — Manifest-anchored profile override system.
 - `secrets` / `openbao` / `vault_keystore` — OpenBao / Vault operations.
-- `vpn_cmds` / `vpn_env` — VPN daemon control and environment detection.
+- `vpn` — VPN daemon control and environment detection.
 - `logger` / `logging` — Structured logging subsystems.
 
 See `src/lib.rs` for the full module list and `AGENTS.md` for project conventions.
