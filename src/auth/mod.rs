@@ -7,7 +7,7 @@
 
 #![allow(missing_docs)]
 
-connectrpc::include_generated!();
+connectrpc::include_generated!("sso-gateway/_connectrpc.rs");
 
 pub use crate::auth::iam::v1;
 
