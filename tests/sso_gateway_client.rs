@@ -29,7 +29,7 @@ async fn start_stack() -> (String, sunbeam_test::sso_gateway::SsoGatewayHandle) 
     let gateway = SsoGateway::new()
         .with_image(
             sunbeam_test::sso_gateway::SsoGateway::DEFAULT_IMAGE_NAME,
-            "v1.0.0-rc14",
+            "v1.0.0-rc15",
         )
         .with_env("SYSTEM_BOOTSTRAP_CLIENT_SECRET", BOOTSTRAP_CLIENT_SECRET)
         .start()
@@ -42,7 +42,7 @@ async fn start_stack() -> (String, sunbeam_test::sso_gateway::SsoGatewayHandle) 
 
 /// Fetch an access token for the system bootstrap client using the OAuth2
 /// client-credentials grant against the gateway's public token endpoint.
-async fn bootstrap_access_token(endpoint: &str) -> String {
+async fn bootstrap_access_token(endpoint: &str, scope: &str) -> String {
     // Hydra may take a moment longer than the gateway readiness probe.
     tokio::time::sleep(Duration::from_secs(3)).await;
 
@@ -50,7 +50,7 @@ async fn bootstrap_access_token(endpoint: &str) -> String {
     let resp = client
         .post(format!("{endpoint}/oauth2/token"))
         .basic_auth(BOOTSTRAP_CLIENT_ID, Some(BOOTSTRAP_CLIENT_SECRET))
-        .form(&[("grant_type", "client_credentials")])
+        .form(&[("grant_type", "client_credentials"), ("scope", scope)])
         .send()
         .await
         .expect("token request should complete");
@@ -92,7 +92,7 @@ async fn sso_gateway_federation_openid_configuration() {
 
     let (endpoint, _gateway) = start_stack().await;
     let client = auth_client(&endpoint).await;
-    let token = bootstrap_access_token(&endpoint).await;
+    let token = bootstrap_access_token(&endpoint, "tenant:read").await;
 
     let response = client
         .federation()
@@ -110,18 +110,15 @@ async fn sso_gateway_federation_openid_configuration() {
     );
 }
 
-/// The tenant service requires a token with `tenant:read` or `tenant:admin`
-/// scope. The system bootstrap client currently issues tokens without that
-/// scope, so this test is ignored until the test harness can provision a
-/// suitably-scoped client.
+/// The tenant service should list at least the system tenant when called
+/// with a token carrying the `tenant:read` scope.
 #[tokio::test]
-#[ignore = "requires a token with tenant:read/tenant:admin scope"]
 async fn sso_gateway_tenant_list_tenants() {
     let _guard = STACK_LOCK.lock().await;
 
     let (endpoint, _gateway) = start_stack().await;
     let client = auth_client(&endpoint).await;
-    let token = bootstrap_access_token(&endpoint).await;
+    let token = bootstrap_access_token(&endpoint, "tenant:read").await;
 
     let mut request = v1::ListTenantsRequest::default();
     request.page.get_or_insert_default().page_size = 10;
@@ -132,6 +129,8 @@ async fn sso_gateway_tenant_list_tenants() {
         .await
         .expect("ListTenants should succeed for system tenant");
 
-    let total = response.view().page.total_size;
-    assert!(total > 0, "at least the system tenant should be returned");
+    assert!(
+        !response.view().tenants.is_empty(),
+        "at least the system tenant should be returned"
+    );
 }
