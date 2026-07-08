@@ -16,7 +16,7 @@ sunbeam-g2v = { version = "0.5.2", default-features = false, features = ["client
 # ConnectRPC runtime and generated sso-gateway stubs.
 connectrpc = { version = "0.7", features = ["client"] }
 
-# Buffa protobuf message runtime used by generated sso-gateway stubs.
+# Buffa protobuf message runtime used by generated ConnectRPC stubs.
 buffa = { version = "0.7", features = ["json"] }
 buffa-types = { version = "0.7", features = ["json"] }
 
@@ -111,5 +111,4 @@ rustls = { version = "0.23", features = ["aws-lc-rs"] }
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
-tonic-prost-build = "0.14"
 connectrpc-build = "0.7"
