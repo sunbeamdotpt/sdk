@@ -117,6 +117,11 @@ impl AuthClient {
     pub fn application(&self) -> v1::ApplicationServiceClient<ConnectTransport> {
         v1::ApplicationServiceClient::new(self.transport(), self.config.clone())
     }
+
+    /// Client for machine-to-machine client credential management.
+    pub fn client_credentials(&self) -> v1::ClientCredentialServiceClient<ConnectTransport> {
+        v1::ClientCredentialServiceClient::new(self.transport(), self.config.clone())
+    }
 }
 
 #[cfg(test)]
@@ -136,5 +141,14 @@ mod tests {
             .unwrap();
         let client = AuthClient::new(g2v, "https://iam.example.com".parse().unwrap()).unwrap();
         assert_eq!(client.base_uri().to_string(), "https://iam.example.com/");
+    }
+
+    #[test]
+    fn test_auth_client_client_credentials_accessor() {
+        let g2v = AuthClient::builder("https://iam.example.com")
+            .build()
+            .unwrap();
+        let client = AuthClient::new(g2v, "https://iam.example.com".parse().unwrap()).unwrap();
+        let _ = client.client_credentials();
     }
 }
