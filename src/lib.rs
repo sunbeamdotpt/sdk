@@ -41,7 +41,7 @@ pub mod vpn;
 /// Workflow engine remote control client.
 pub mod wfectl;
 
-/// Kanban project management via gRPC.
+/// Kanban project management via ConnectRPC.
 pub mod kanban;
 
 // Private support modules used by public modules above.

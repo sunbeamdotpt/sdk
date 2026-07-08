@@ -1,130 +1,121 @@
-//! Kanban project management via gRPC.
+//! Kanban project management — SDK client for the Sunbeam kanban service.
+//!
+//! The entire kanban surface area is generated from `buf.build/sunbeamdotpt/kanban`
+//! and exposed under [`v1`]. [`KanbanClient`] wraps a
+//! [`sunbeam_g2v::client::Client`] to provide ready-to-use service clients
+//! speaking ConnectRPC.
 
-use crate::error::{Result, SunbeamError};
+#![allow(missing_docs)]
 
-pub mod aggregated;
-pub mod attachments;
-pub mod boards;
-pub mod card_templates;
-pub mod cards;
-pub mod client;
-pub mod github_links;
-pub mod projects;
-pub mod public_boards;
-pub mod resolve;
-pub mod search;
-pub mod subscribe;
-pub mod templates;
+connectrpc::include_generated!("kanban/_connectrpc.rs");
 
-/// Generate a fresh ULID idempotency key for mutating RPCs.
-pub fn new_idempotency_key() -> String {
-    ulid::Ulid::new().to_string()
+pub use crate::kanban::sunbeam::kanban::v1;
+
+use connectrpc::client::ClientConfig;
+use std::sync::Arc;
+use sunbeam_g2v::client::{
+    Client as G2vClient, ClientBuilder, ClientBuilderError, ConnectTransport,
+};
+
+/// Errors that can occur when constructing or using a [`KanbanClient`].
+#[derive(Debug, thiserror::Error)]
+pub enum KanbanClientError {
+    /// The supplied base URL could not be parsed.
+    #[error("invalid kanban server URL: {0}")]
+    InvalidUrl(String),
+    /// The underlying HTTP client could not be constructed.
+    #[error("failed to build kanban client: {0}")]
+    Build(#[from] ClientBuilderError),
 }
 
-/// Resolve the default Kanban server URL from the provided context.
-pub fn default_server_url_for(ctx: &crate::config::Context) -> Result<String> {
-    let domain = ctx.domain.clone();
-    if domain.is_empty() {
-        return Err(SunbeamError::config(
-            "no domain configured in the active context; set a domain or pass a server URL",
-        ));
+/// SDK client for the Sunbeam kanban service surface.
+///
+/// `KanbanClient` is cheap to clone: it holds an [`Arc`] around the configured
+/// g2v HTTP client stack.
+#[derive(Clone, Debug)]
+pub struct KanbanClient {
+    client: Arc<G2vClient>,
+    base_uri: http::Uri,
+    config: ClientConfig,
+}
+
+impl KanbanClient {
+    /// Create a builder for a kanban client rooted at the given server URL.
+    ///
+    /// The URL should be the base of the kanban deployment, e.g.
+    /// `https://kanban.example.com`.
+    pub fn builder(base_url: impl Into<String>) -> ClientBuilder {
+        ClientBuilder::new(base_url)
     }
-    Ok(format!("https://kanban.{domain}"))
-}
 
-/// Resolve the default Kanban server URL from the active context.
-pub fn default_server_url() -> Result<String> {
-    default_server_url_for(crate::config::active_context())
-}
-
-/// Resolve the final server URL from an explicit override or the active context.
-pub fn resolve_server_url(url_override: Option<&str>) -> Result<String> {
-    match url_override {
-        Some(u) => Ok(u.to_string()),
-        None => default_server_url(),
+    /// Create a client from an existing g2v client and base URI.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KanbanClientError::InvalidUrl`] when `base_uri` cannot be used
+    /// to build a ConnectRPC client configuration.
+    pub fn new(client: G2vClient, base_uri: http::Uri) -> Result<Self, KanbanClientError> {
+        let config = ClientConfig::new(base_uri.clone());
+        Ok(Self {
+            client: Arc::new(client),
+            base_uri,
+            config,
+        })
     }
-}
 
-/// Resolve and validate a bearer token for authenticated RPCs.
-pub async fn require_token() -> Result<String> {
-    Err(SunbeamError::identity(
-        "provide an explicit bearer token; AuthClient no longer caches tokens globally",
-    ))
-}
-
-/// Format a chrono UTC timestamp as a short ISO 8601 string.
-pub fn fmt_time(ts: &chrono::DateTime<chrono::Utc>) -> String {
-    ts.format("%Y-%m-%d %H:%M:%S").to_string()
-}
-
-/// Format a prost Timestamp.
-pub fn fmt_proto_time(ts: &prost_types::Timestamp) -> String {
-    let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(ts.seconds, ts.nanos as u32);
-    match dt {
-        Some(dt) => fmt_time(&dt),
-        None => "<invalid>".into(),
+    /// Return the configured base URI.
+    pub fn base_uri(&self) -> &http::Uri {
+        &self.base_uri
     }
-}
 
-/// Convert a `serde_json::Value` to a `prost_types::Value`.
-pub fn json_to_prost(json: &serde_json::Value) -> prost_types::Value {
-    use prost_types::value::Kind;
-    let kind = match json {
-        serde_json::Value::Null => Kind::NullValue(0),
-        serde_json::Value::Bool(b) => Kind::BoolValue(*b),
-        serde_json::Value::Number(n) => Kind::NumberValue(n.as_f64().unwrap_or(0.0)),
-        serde_json::Value::String(s) => Kind::StringValue(s.clone()),
-        serde_json::Value::Array(arr) => Kind::ListValue(prost_types::ListValue {
-            values: arr.iter().map(json_to_prost).collect(),
-        }),
-        serde_json::Value::Object(obj) => Kind::StructValue(prost_types::Struct {
-            fields: obj
-                .iter()
-                .map(|(k, v)| (k.clone(), json_to_prost(v)))
-                .collect(),
-        }),
-    };
-    prost_types::Value { kind: Some(kind) }
-}
-
-/// Convert a top-level JSON object into a `prost_types::Struct`.
-pub fn json_object_to_struct(json: &serde_json::Value) -> prost_types::Struct {
-    match json {
-        serde_json::Value::Object(map) => prost_types::Struct {
-            fields: map
-                .iter()
-                .map(|(k, v)| (k.clone(), json_to_prost(v)))
-                .collect(),
-        },
-        _ => prost_types::Struct::default(),
+    fn transport(&self) -> ConnectTransport {
+        self.client.connectrpc(self.base_uri.clone())
     }
-}
 
-/// Convert a `prost_types::Value` back to `serde_json::Value`.
-pub fn prost_to_json(value: &prost_types::Value) -> serde_json::Value {
-    use prost_types::value::Kind;
-    match &value.kind {
-        Some(Kind::NullValue(_)) | None => serde_json::Value::Null,
-        Some(Kind::BoolValue(b)) => serde_json::Value::Bool(*b),
-        Some(Kind::NumberValue(n)) => serde_json::Number::from_f64(*n)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null),
-        Some(Kind::StringValue(s)) => serde_json::Value::String(s.clone()),
-        Some(Kind::ListValue(list)) => {
-            serde_json::Value::Array(list.values.iter().map(prost_to_json).collect())
-        }
-        Some(Kind::StructValue(s)) => prost_struct_to_json(s),
+    /// Client for board management.
+    pub fn boards(&self) -> v1::BoardServiceClient<ConnectTransport> {
+        v1::BoardServiceClient::new(self.transport(), self.config.clone())
     }
-}
 
-/// Convert a `prost_types::Struct` to a `serde_json::Value::Object`.
-pub fn prost_struct_to_json(s: &prost_types::Struct) -> serde_json::Value {
-    serde_json::Value::Object(
-        s.fields
-            .iter()
-            .map(|(k, v)| (k.clone(), prost_to_json(v)))
-            .collect(),
-    )
+    /// Client for card management.
+    pub fn cards(&self) -> v1::CardServiceClient<ConnectTransport> {
+        v1::CardServiceClient::new(self.transport(), self.config.clone())
+    }
+
+    /// Client for project management.
+    pub fn projects(&self) -> v1::ProjectServiceClient<ConnectTransport> {
+        v1::ProjectServiceClient::new(self.transport(), self.config.clone())
+    }
+
+    /// Client for aggregated boards.
+    pub fn aggregated_boards(&self) -> v1::AggregatedBoardServiceClient<ConnectTransport> {
+        v1::AggregatedBoardServiceClient::new(self.transport(), self.config.clone())
+    }
+
+    /// Client for attachments.
+    pub fn attachments(&self) -> v1::AttachmentServiceClient<ConnectTransport> {
+        v1::AttachmentServiceClient::new(self.transport(), self.config.clone())
+    }
+
+    /// Client for GitHub issue links.
+    pub fn github_links(&self) -> v1::GithubLinkServiceClient<ConnectTransport> {
+        v1::GithubLinkServiceClient::new(self.transport(), self.config.clone())
+    }
+
+    /// Client for public boards.
+    pub fn public_boards(&self) -> v1::PublicBoardServiceClient<ConnectTransport> {
+        v1::PublicBoardServiceClient::new(self.transport(), self.config.clone())
+    }
+
+    /// Client for search.
+    pub fn search(&self) -> v1::SearchServiceClient<ConnectTransport> {
+        v1::SearchServiceClient::new(self.transport(), self.config.clone())
+    }
+
+    /// Client for board and card templates.
+    pub fn templates(&self) -> v1::TemplatesServiceClient<ConnectTransport> {
+        v1::TemplatesServiceClient::new(self.transport(), self.config.clone())
+    }
 }
 
 #[cfg(test)]
@@ -132,42 +123,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolve_server_url_uses_override() {
-        assert_eq!(
-            resolve_server_url(Some("http://local")).unwrap(),
-            "http://local"
-        );
+    fn test_kanban_client_builder_creates_g2v_builder() {
+        let builder = KanbanClient::builder("https://kanban.example.com");
+        let _ = builder;
     }
 
     #[test]
-    fn default_server_url_for_builds_from_domain() {
-        let ctx = crate::config::Context {
-            domain: "sunbeam.test".into(),
-            ..Default::default()
-        };
-        assert_eq!(
-            default_server_url_for(&ctx).unwrap(),
-            "https://kanban.sunbeam.test"
-        );
-    }
-
-    #[test]
-    fn default_server_url_for_errors_when_domain_empty() {
-        let ctx = crate::config::Context::default();
-        assert!(default_server_url_for(&ctx).is_err());
-    }
-
-    #[test]
-    fn new_idempotency_key_is_ulid() {
-        let key = new_idempotency_key();
-        assert!(!key.is_empty());
-        assert!(key.chars().all(|c| c.is_ascii_alphanumeric()));
-    }
-
-    #[test]
-    fn default_server_url_errors_when_domain_empty() {
-        crate::config::set_active_context(crate::config::Context::default());
-        let err = default_server_url().unwrap_err();
-        assert!(err.to_string().contains("no domain configured"));
+    fn test_kanban_client_new_roundtrip() {
+        let g2v = KanbanClient::builder("https://kanban.example.com")
+            .build()
+            .unwrap();
+        let client = KanbanClient::new(g2v, "https://kanban.example.com".parse().unwrap()).unwrap();
+        assert_eq!(client.base_uri().to_string(), "https://kanban.example.com/");
     }
 }
