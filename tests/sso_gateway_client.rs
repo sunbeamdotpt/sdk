@@ -134,3 +134,64 @@ async fn sso_gateway_tenant_list_tenants() {
         "at least the system tenant should be returned"
     );
 }
+
+/// The client credential service should allow creating, listing, and deleting
+/// machine-to-machine OAuth2 clients when called with a token carrying the
+/// `application:admin` scope.
+#[tokio::test]
+async fn sso_gateway_client_credential_lifecycle() {
+    let _guard = STACK_LOCK.lock().await;
+
+    let (endpoint, _gateway) = start_stack().await;
+    let client = auth_client(&endpoint).await;
+    let token = bootstrap_access_token(&endpoint, "application:admin").await;
+    let options = authenticated_options(&token);
+
+    let create_request = v1::CreateClientCredentialRequest {
+        name: "sdk-test-client".to_string(),
+        scope: vec!["tenant:read".to_string()],
+        token_endpoint_auth_method: "client_secret_post".to_string(),
+        ..Default::default()
+    };
+
+    let create_response = client
+        .client_credentials()
+        .create_client_credential_with_options(create_request, options.clone())
+        .await
+        .expect("CreateClientCredential should succeed");
+
+    let created_id = create_response.view().id.to_string();
+    assert!(
+        !created_id.is_empty(),
+        "created client credential should have an id"
+    );
+
+    let mut list_request = v1::ListClientCredentialsRequest::default();
+    list_request.page.get_or_insert_default().page_size = 100;
+
+    let list_response = client
+        .client_credentials()
+        .list_client_credentials_with_options(list_request, options.clone())
+        .await
+        .expect("ListClientCredentials should succeed");
+
+    assert!(
+        list_response
+            .view()
+            .client_credentials
+            .iter()
+            .any(|c| c.id == created_id),
+        "created credential should appear in the list"
+    );
+
+    let delete_request = v1::DeleteClientCredentialRequest {
+        id: created_id,
+        ..Default::default()
+    };
+
+    client
+        .client_credentials()
+        .delete_client_credential_with_options(delete_request, options)
+        .await
+        .expect("DeleteClientCredential should succeed");
+}
