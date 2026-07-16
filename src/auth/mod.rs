@@ -122,6 +122,11 @@ impl AuthClient {
     pub fn client_credentials(&self) -> v1::ClientCredentialServiceClient<ConnectTransport> {
         v1::ClientCredentialServiceClient::new(self.transport(), self.config.clone())
     }
+
+    /// Client for agent identity, delegation, and act-token management.
+    pub fn agent(&self) -> v1::AgentServiceClient<ConnectTransport> {
+        v1::AgentServiceClient::new(self.transport(), self.config.clone())
+    }
 }
 
 #[cfg(test)]
@@ -150,5 +155,14 @@ mod tests {
             .unwrap();
         let client = AuthClient::new(g2v, "https://iam.example.com".parse().unwrap()).unwrap();
         let _ = client.client_credentials();
+    }
+
+    #[test]
+    fn test_auth_client_agent_accessor() {
+        let g2v = AuthClient::builder("https://iam.example.com")
+            .build()
+            .unwrap();
+        let client = AuthClient::new(g2v, "https://iam.example.com".parse().unwrap()).unwrap();
+        let _ = client.agent();
     }
 }
