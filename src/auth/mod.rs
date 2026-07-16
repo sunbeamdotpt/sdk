@@ -17,6 +17,9 @@ use sunbeam_g2v::client::{
     Client as G2vClient, ClientBuilder, ClientBuilderError, ConnectTransport,
 };
 
+/// Header carrying the tenant id on sso-gateway requests.
+pub const TENANT_ID_HEADER: &str = "x-tenant-id";
+
 /// Errors that can occur when constructing or using an [`AuthClient`].
 #[derive(Debug, thiserror::Error)]
 pub enum AuthClientError {
@@ -66,6 +69,21 @@ impl AuthClient {
     /// Return the configured base URI.
     pub fn base_uri(&self) -> &http::Uri {
         &self.base_uri
+    }
+
+    /// Return a copy of this client that sends `tenant_id` in the
+    /// [`TENANT_ID_HEADER`] header on every request.
+    ///
+    /// The header is set as a default on the underlying
+    /// [`connectrpc::client::ClientConfig`]; per-call
+    /// [`connectrpc::client::CallOptions`] headers with the same name take
+    /// precedence over it.
+    #[must_use]
+    pub fn with_tenant(mut self, tenant_id: impl Into<String>) -> Self {
+        self.config = self
+            .config
+            .with_default_header(TENANT_ID_HEADER, tenant_id.into());
+        self
     }
 
     fn transport(&self) -> ConnectTransport {
@@ -146,6 +164,24 @@ mod tests {
             .unwrap();
         let client = AuthClient::new(g2v, "https://iam.example.com".parse().unwrap()).unwrap();
         assert_eq!(client.base_uri().to_string(), "https://iam.example.com/");
+    }
+
+    #[test]
+    fn test_auth_client_with_tenant_sets_config_default_header() {
+        let g2v = AuthClient::builder("https://iam.example.com")
+            .build()
+            .unwrap();
+        let client = AuthClient::new(g2v, "https://iam.example.com".parse().unwrap())
+            .unwrap()
+            .with_tenant("01HZY9JTKKHK3Y6XJJYHZ9Q5TV");
+        assert_eq!(
+            client
+                .config
+                .default_headers()
+                .get(TENANT_ID_HEADER)
+                .unwrap(),
+            "01HZY9JTKKHK3Y6XJJYHZ9Q5TV"
+        );
     }
 
     #[test]

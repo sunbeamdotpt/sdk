@@ -20,7 +20,6 @@ use tokio::sync::Mutex;
 mod support;
 use support::SsoGateway;
 
-const TENANT_ID_HEADER: &str = "x-tenant-id";
 const SYSTEM_TENANT_ULID: &str = "01HZY9JTKKHK3Y6XJJYHZ9Q5TV";
 const BOOTSTRAP_CLIENT_ID: &str = "system-bootstrap-client";
 const BOOTSTRAP_CLIENT_SECRET: &str = "sunbeam-test-bootstrap-secret";
@@ -76,9 +75,7 @@ async fn bootstrap_access_token(endpoint: &str, scope: &str) -> String {
 }
 
 fn authenticated_options(token: &str) -> CallOptions {
-    CallOptions::default()
-        .with_header(TENANT_ID_HEADER, SYSTEM_TENANT_ULID)
-        .with_header("authorization", format!("Bearer {token}"))
+    CallOptions::default().with_header("authorization", format!("Bearer {token}"))
 }
 
 async fn auth_client(endpoint: &str) -> AuthClient {
@@ -87,6 +84,7 @@ async fn auth_client(endpoint: &str) -> AuthClient {
         .expect("failed to build g2v client");
     AuthClient::new(g2v, endpoint.parse().expect("invalid sso-gateway URL"))
         .expect("failed to construct AuthClient")
+        .with_tenant(SYSTEM_TENANT_ULID)
 }
 
 /// Generate a unique suffix for names/slugs so repeated test runs do not
