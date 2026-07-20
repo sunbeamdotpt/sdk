@@ -1,0 +1,14 @@
+# Nextest configuration.
+#
+# The sso-gateway integration tests each boot a full Docker stack (Postgres,
+# Hydra, Kratos, a permission backend, and the gateway). Running several
+# stacks concurrently intermittently fails during container startup, so they
+# are serialized into a single-threaded test group. (The global mutex inside
+# the test file cannot help — nextest runs each test in its own process.)
+
+[test-groups.sso-gateway]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = "binary(sso_gateway_client)"
+test-group = "sso-gateway"

@@ -1,11 +1,12 @@
 //! End-to-end integration tests for the sso-gateway [`AuthClient`].
 //!
 //! These tests boot the real sso-gateway reference stack in Docker via
-//! `sunbeam_test::SsoGateway` and exercise the generated ConnectRPC clients
+//! `sdk::testing::SsoGateway` and exercise the generated ConnectRPC clients
 //! against it.
 //!
 //! They are serialized with a global mutex because each test starts a full
 //! stack (Postgres, Redis, Hydra, Kratos, Keto, sso-gateway).
+#![cfg(feature = "testing")]
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
@@ -27,13 +28,14 @@ const BOOTSTRAP_CLIENT_SECRET: &str = "sunbeam-test-bootstrap-secret";
 static STACK_LOCK: Mutex<()> = Mutex::const_new(());
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-async fn start_stack() -> (String, sunbeam_test::sso_gateway::SsoGatewayHandle) {
+async fn start_stack() -> (String, sdk::testing::sso_gateway::SsoGatewayHandle) {
     support::init_docker_host();
 
+    let tag = std::env::var("SSO_GATEWAY_IMAGE_TAG").unwrap_or_else(|_| "v2026.07.20".to_string());
     let gateway = SsoGateway::new()
         .with_image(
-            sunbeam_test::sso_gateway::SsoGateway::DEFAULT_IMAGE_NAME,
-            "v1.0.0-rc15",
+            sdk::testing::sso_gateway::SsoGateway::DEFAULT_IMAGE_NAME,
+            &tag,
         )
         .with_env("SYSTEM_BOOTSTRAP_CLIENT_SECRET", BOOTSTRAP_CLIENT_SECRET)
         .start()
