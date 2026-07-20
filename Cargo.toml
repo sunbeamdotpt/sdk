@@ -1,28 +1,100 @@
 [package]
 name = "sdk"
-version = "2026.7.1"
+version = "3.0.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/sunbeamdotpt/sdk"
 description = "Sunbeam Studios SDK"
 
+[features]
+default = ["full"]
+# Everything: backwards-compatible with pre-feature consumers.
+full = [
+    "auth",
+    "kanban",
+    "wfectl",
+    "search",
+    "matrix",
+    "media",
+    "monitoring",
+    "build",
+    "kube",
+    "openbao",
+    "secrets",
+    "vault-keystore",
+    "vpn",
+]
+# sso-gateway IAM client (ConnectRPC, generated stubs).
+auth = [
+    "dep:connectrpc",
+    "dep:buffa",
+    "dep:buffa-types",
+    "dep:http-body",
+    "sunbeam-g2v/client-connectrpc",
+]
+# Kanban project management client (ConnectRPC, generated stubs).
+kanban = [
+    "dep:connectrpc",
+    "dep:buffa",
+    "dep:buffa-types",
+    "dep:http-body",
+    "sunbeam-g2v/client-connectrpc",
+]
+# Remote workflow engine gRPC client.
+wfectl = [
+    "dep:tonic",
+    "dep:tonic-prost",
+    "dep:prost",
+    "dep:prost-types",
+    "dep:anyhow",
+    "dep:wfe",
+    "dep:wfe-core",
+    "dep:wfe-sqlite",
+    "dep:wfe-yaml",
+    "dep:wfe-server-protos",
+]
+# OpenSearch HTTP API client.
+search = ["dep:sunbeam-g2v"]
+# Matrix Client-Server API client.
+matrix = ["dep:sunbeam-g2v"]
+# LiveKit Twirp API client + JWT access tokens.
+media = ["dep:sunbeam-g2v"]
+# Prometheus, Loki, and Grafana API clients.
+monitoring = ["dep:sunbeam-g2v"]
+# BuildKit container image build client (host buildctl wrapper).
+build = []
+# Kubernetes client setup and manifest operations.
+kube = ["dep:kube", "dep:k8s-openapi"]
+# OpenBao (HashiCorp Vault fork) API client.
+openbao = ["dep:vaultrs"]
+# OpenBao secret reading and seeding (needs cluster access).
+secrets = ["kube", "openbao", "dep:rsa", "dep:pkcs8", "dep:pkcs1"]
+# Vault transit keystore operations.
+vault-keystore = ["dep:argon2", "dep:aes-gcm"]
+# VPN daemon control and environment detection.
+vpn = ["dep:sunbeam-net"]
+# Testcontainers builders for Sunbeam services.
+testing = ["dep:testcontainers", "dep:bollard"]
+
 [dependencies]
 # Internal
-sunbeam-net = { git = "https://github.com/sunbeamdotpt/vpn" }
+sunbeam-net = { git = "https://github.com/sunbeamdotpt/vpn", optional = true }
 
 # Sunbeam service framework — client stack for remote services.
-sunbeam-g2v = { version = "0.5.2", default-features = false, features = ["client", "client-connectrpc", "auth", "tracing", "logging"] }
+# g2v 0.5.2's feature graph requires auth+tracing+logging even for
+# client-only builds (its audit middleware references them unconditionally).
+sunbeam-g2v = { version = "0.5.2", default-features = false, features = ["client", "auth", "tracing", "logging"], optional = true }
 
-# ConnectRPC runtime and generated sso-gateway stubs.
-connectrpc = { version = "0.7", features = ["client"] }
-
-# Buffa protobuf message runtime used by generated ConnectRPC stubs.
-buffa = { version = "0.7", features = ["json"] }
-buffa-types = { version = "0.7", features = ["json"] }
+# ConnectRPC runtime and generated stubs runtime.
+# Pinned to 0.7/0.7: sunbeam-g2v 0.5.2 (latest) depends on connectrpc 0.7 —
+# 0.8 + buffa 0.8 introduce a second connectrpc in the graph and break the
+# ConnectTransport interop used by AuthClient.
+connectrpc = { version = "0.7", features = ["client"], optional = true }
+buffa = { version = "0.7", features = ["json"], optional = true }
+buffa-types = { version = "0.7", features = ["json"], optional = true }
 
 # Core
-thiserror = "1"
-anyhow = "1"
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
 tracing = "0.1"
@@ -30,10 +102,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 async-trait = "0.1"
 futures = "0.3"
 
-# CLI (kept for action/args derives used by SDK internals)
+# CLI (kept for the logging mode ValueEnum)
 clap = { version = "4.5", features = ["derive"] }
-comfy-table = "7"
-indicatif = { version = "0.17", features = ["tokio"] }
+indicatif = { version = "0.18", features = ["tokio"] }
 
 # Serde
 serde = { version = "1.0", features = ["derive"] }
@@ -41,29 +112,25 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 
 # Kubernetes
-kube = { version = "3.1", features = ["runtime", "client", "ws"] }
-k8s-openapi = { version = "0.27", features = ["latest"] }
+kube = { version = "4.0", features = ["runtime", "client", "ws"], optional = true }
+k8s-openapi = { version = "0.28", features = ["latest"], optional = true }
 
 # HTTP / TLS
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "blocking"] }
 bytes = "1.0"
 http = "1"
-http-body = "1"
+http-body = { version = "1", optional = true }
 
 # Crypto
-rsa = "0.9"
-pkcs8 = "0.10"
-pkcs1 = "0.7"
+rsa = { version = "0.9", optional = true }
+pkcs8 = { version = "0.10", optional = true }
+pkcs1 = { version = "0.7", optional = true }
 sha2 = "0.10"
 hmac = "0.12"
 base64 = "0.22"
 rand = "0.8"
-aes-gcm = "0.10"
-argon2 = "0.5"
-rcgen = "0.13"
-
-# SMTP
-lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "tokio1-rustls-tls", "builder", "hostname"] }
+aes-gcm = { version = "0.10", optional = true }
+argon2 = { version = "0.5", optional = true }
 
 # Archive handling
 flate2 = "1"
@@ -71,44 +138,37 @@ tar = "0.4"
 
 # Utility
 tempfile = "3"
-dirs = "5"
+dirs = "6"
 chrono = { version = "0.4", features = ["serde"] }
 jiff = "0.2"
 hostname = "0.4.2"
 whoami = "2.1.1"
 libc = "0.2.184"
-
-# VCS
-gix = { version = "0.81.0", default-features = false, features = ["revision", "sha1"] }
-repo-rs-cmd = "0.2.3"
-repo-rs-engine = "0.2.3"
-repo-rs-model = "0.2.3"
-repo-rs-git = "0.2.3"
-repo-rs-manifest = "0.2.3"
-camino = "1.2"
-indexmap = "2.14"
+anyhow = { version = "1", optional = true }
 
 # OpenBao / Vault
-vaultrs = "0.8"
+vaultrs = { version = "0.8", optional = true }
 
 # Workflow engine
-wfe = "1.10.0"
-wfe-core = { version = "1.10.0", features = ["test-support"] }
-wfe-sqlite = "1.10.0"
-wfe-yaml = { version = "1.10.0", features = ["rustlang", "buildkit", "containerd", "kubernetes"] }
-wfe-server-protos = "1.10.0"
-tonic = { version = "0.14", features = ["tls-native-roots"] }
-tonic-prost = "0.14"
-prost-types = "0.14"
-prost = "0.14"
-ulid = "1"
+wfe = { version = "1.10.0", optional = true }
+wfe-core = { version = "1.10.0", features = ["test-support"], optional = true }
+wfe-sqlite = { version = "1.10.0", optional = true }
+wfe-yaml = { version = "1.10.0", features = ["rustlang", "buildkit", "containerd", "kubernetes"], optional = true }
+wfe-server-protos = { version = "1.10.0", optional = true }
+tonic = { version = "0.14", features = ["tls-native-roots"], optional = true }
+tonic-prost = { version = "0.14", optional = true }
+prost-types = { version = "0.14", optional = true }
+prost = { version = "0.14", optional = true }
+
+# Testcontainers (testing feature)
+testcontainers = { version = "0.27.3", features = ["blocking"], optional = true }
+bollard = { version = "0.20", optional = true }
 
 [dev-dependencies]
 wiremock = "0.6"
-mockall = "0.13"
+mockall = "0.15"
 async-trait = "0.1"
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
-sunbeam-test = { git = "https://github.com/sunbeamdotpt/test.git", version = "2026.7.1" }
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }

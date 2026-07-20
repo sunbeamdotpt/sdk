@@ -20,25 +20,29 @@ fn main() {
     println!("cargo:rerun-if-changed={}", lima_yaml_src.display());
 
     // Generate sso-gateway ConnectRPC client stubs for the auth module.
-    generate_connectrpc_module(
-        &out_dir,
-        "sso-gateway",
-        "buf.build/sunbeamdotpt/sso-gateway",
-        &["iam/v1"],
-        None,
-    );
+    if env::var("CARGO_FEATURE_AUTH").is_ok() {
+        generate_connectrpc_module(
+            &out_dir,
+            "sso-gateway",
+            "buf.build/sunbeamdotpt/sso-gateway",
+            &["iam/v1"],
+            None,
+        );
+    }
 
     // Generate Kanban ConnectRPC client stubs for the kanban module.
     // Kanban protos import the local Ory Keto read_service.proto, so the
     // vendored proto directory is passed as an additional include root.
-    let local_proto_dir = manifest_dir.join("proto");
-    generate_connectrpc_module(
-        &out_dir,
-        "kanban",
-        "buf.build/sunbeamdotpt/kanban",
-        &["sunbeam/kanban/v1"],
-        Some(&local_proto_dir),
-    );
+    if env::var("CARGO_FEATURE_KANBAN").is_ok() {
+        let local_proto_dir = manifest_dir.join("proto");
+        generate_connectrpc_module(
+            &out_dir,
+            "kanban",
+            "buf.build/sunbeamdotpt/kanban",
+            &["sunbeam/kanban/v1"],
+            Some(&local_proto_dir),
+        );
+    }
 
     // Set version info from git
     let commit = git_commit_sha();

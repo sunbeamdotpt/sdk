@@ -73,6 +73,8 @@ pub async fn get_client() -> Result<Client> {
         context: Some(ctx_name.to_string()),
         ..Default::default()
     };
+    // `mut` is only needed when the `vpn` feature rewrites the config below.
+    #[cfg_attr(not(feature = "vpn"), allow(unused_mut))]
     let mut config = Config::from_custom_kubeconfig(kubeconfig, &options)
         .await
         .map_err(|e| {
@@ -81,6 +83,7 @@ pub async fn get_client() -> Result<Client> {
 
     // VPN-aware: when the daemon is running AND the active context
     // has a vpn_url, route through the loopback k8s proxy.
+    #[cfg(feature = "vpn")]
     if crate::vpn::env::vpn_daemon_socket_exists()
         && !crate::config::active_context().vpn_url.is_empty()
     {

@@ -41,7 +41,7 @@ pub enum SunbeamError {
         context: String,
         /// Underlying kube client error, if any.
         #[source]
-        source: Option<Box<kube::Error>>,
+        source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
 
     /// Configuration error (missing config, invalid config, bad arguments).
@@ -127,6 +127,7 @@ impl SunbeamError {
 // From impls for automatic conversion
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "kube")]
 impl From<kube::Error> for SunbeamError {
     fn from(e: kube::Error) -> Self {
         SunbeamError::Kube {
@@ -145,27 +146,29 @@ impl From<reqwest::Error> for SunbeamError {
     }
 }
 
+#[cfg(any(
+    feature = "auth",
+    feature = "kanban",
+    feature = "search",
+    feature = "matrix",
+    feature = "media",
+    feature = "monitoring"
+))]
+impl From<sunbeam_g2v::client::ClientError> for SunbeamError {
+    fn from(e: sunbeam_g2v::client::ClientError) -> Self {
+        SunbeamError::Network {
+            context: e.to_string(),
+            source: None,
+        }
+    }
+}
+
 impl From<std::io::Error> for SunbeamError {
     fn from(e: std::io::Error) -> Self {
         SunbeamError::Io {
             context: "IO error".into(),
             source: e,
         }
-    }
-}
-
-impl From<lettre::transport::smtp::Error> for SunbeamError {
-    fn from(e: lettre::transport::smtp::Error) -> Self {
-        SunbeamError::Network {
-            context: format!("SMTP error: {e}"),
-            source: None,
-        }
-    }
-}
-
-impl From<lettre::error::Error> for SunbeamError {
-    fn from(e: lettre::error::Error) -> Self {
-        SunbeamError::Other(format!("Email error: {e}"))
     }
 }
 
@@ -181,6 +184,7 @@ impl From<std::string::FromUtf8Error> for SunbeamError {
     }
 }
 
+#[cfg(feature = "wfectl")]
 impl From<tonic::transport::Error> for SunbeamError {
     fn from(e: tonic::transport::Error) -> Self {
         SunbeamError::Network {
@@ -190,12 +194,14 @@ impl From<tonic::transport::Error> for SunbeamError {
     }
 }
 
+#[cfg(feature = "wfectl")]
 impl From<tonic::Status> for SunbeamError {
     fn from(e: tonic::Status) -> Self {
         SunbeamError::Other(format!("gRPC error: {}", e.message()))
     }
 }
 
+#[cfg(feature = "wfectl")]
 impl From<tonic::metadata::errors::InvalidMetadataValue> for SunbeamError {
     fn from(e: tonic::metadata::errors::InvalidMetadataValue) -> Self {
         SunbeamError::Other(format!("invalid gRPC metadata value: {e}"))
