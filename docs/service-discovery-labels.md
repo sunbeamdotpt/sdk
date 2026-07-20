@@ -1,3 +1,16 @@
+---
+title: Service Discovery Labels
+description: Kubernetes label-based service discovery — label conventions, categories, and migration guide.
+tags:
+  - kubernetes
+  - service-discovery
+category: reference
+nav_order: 30
+created_at: "2026-07-20"
+related:
+  - sunbeam-up.md
+---
+
 # Sunbeam Service Discovery Labels
 
 Migration guide: replacing hardcoded service definitions in `src/services.rs` with Kubernetes label-based discovery.

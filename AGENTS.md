@@ -55,6 +55,7 @@ user to install it.
 │   ├── lib.rs              # Module declarations, #![warn(missing_docs)]
 │   ├── error.rs            # SunbeamError, Result, ResultExt, bail! macro
 │   ├── auth.rs             # OAuth2 / SSO login flow
+│   ├── build/              # BuildKit container image build client (buildctl wrapper)
 │   ├── config.rs           # ~/.sunbeam/config.json (Context, active_context global)
 │   ├── constants.rs        # Shared constants
 │   ├── kube.rs             # kube-rs client init, server-side apply, rollout restart
@@ -62,9 +63,17 @@ user to install it.
 │   ├── logger.rs           # Structured logger with inherited fields
 │   ├── manifest_params.rs  # Runtime parameter discovery (--set) and override application
 │   ├── manifests.rs        # Kustomize build + domain substitution + namespace filtering + apply
+│   ├── matrix/             # Matrix Client-Server API client (g2v-based)
+│   ├── media/              # LiveKit Twirp API client + JWT access tokens (g2v-based)
+│   ├── monitoring/         # Prometheus, Loki, Grafana API clients (g2v-based)
 │   ├── openbao.rs          # OpenBao HTTP client
 │   ├── profiles/           # Manifest profile system (shortcuts, rules, validation)
+│   ├── search/             # OpenSearch HTTP API client (g2v-based)
 │   ├── secrets.rs          # OpenBao init/unseal/seed, VSO secret sync, port-forward
+│   ├── testing/            # Testcontainers builders (testing feature): postgres,
+│   │                       # openbao, opensearch, tuwunel, livekit, prometheus, loki,
+│   │                       # grafana, stalwart, searxng, headscale, otelcol, ory,
+│   │                       # openfga, sso-gateway orchestrator
 │   ├── vault_keystore.rs   # Vault transit keystore operations
 │   ├── vpn/                  # VPN daemon control and environment detection
 │   │   ├── cmds.rs           # connect/disconnect/status commands
@@ -84,8 +93,12 @@ cargo build --release
 # Run all tests (requires cargo-nextest)
 cargo nextest run --lib
 
+# Run tests including testcontainers-backed tests (requires Docker)
+cargo nextest run --lib --features testing
+
 # Lint
 cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --features testing -- -D warnings
 
 # Format
 cargo fmt --all
@@ -106,6 +119,44 @@ cargo doc --no-deps
   the `bail!` macro.
 - `kanban/` service functions are tested behind `mockall::automock` service
   traits; the kanban module targets >90% line coverage via `cargo llvm-cov`.
+- Container-backed tests live in `#[cfg(all(test, feature = "testing"))]`
+  modules next to the code and use the `testing/` builders (OpenSearch,
+  Tuwunel, LiveKit, Prometheus, Loki, Grafana, OpenBao). They are not run in
+  CI; run them locally with `cargo nextest run --lib --features testing`
+  (requires Docker).
+
+## Features
+
+Functional areas are gated behind cargo features; `default = ["full"]`
+enables everything. Tree-shaking consumers opt in explicitly:
+
+```toml
+sdk = { version = "3", default-features = false, features = ["search", "media"] }
+```
+
+| Feature | Modules | Notes |
+|---------|---------|-------|
+| `auth` | `auth` | sso-gateway IAM client (ConnectRPC stubs via `build.rs`) |
+| `kanban` | `kanban` | Kanban ConnectRPC client (codegen via `build.rs`) |
+| `wfectl` | `wfectl` | WFE workflow engine gRPC client |
+| `search` | `search` | OpenSearch client (g2v `RestClient`) |
+| `matrix` | `matrix` | Matrix Client-Server client |
+| `media` | `media` | LiveKit Twirp client + JWT |
+| `monitoring` | `monitoring` | Prometheus, Loki, Grafana clients |
+| `build` | `build` | BuildKit `buildctl` wrapper |
+| `kube` | `kube`, `manifests`, `manifest_params`, `profiles` | kube-rs + kustomize |
+| `openbao` | `openbao` | OpenBao/Vault client |
+| `secrets` | `secrets` | enables `kube` + `openbao` |
+| `vault-keystore` | `vault_keystore` | transit keystore crypto |
+| `vpn` | `vpn` (+ VPN hook in `kube`) | sunbeam-net, daemon socket |
+| `testing` | `testing` | testcontainers builders (dev/test only) |
+
+Always compiled (no feature): `error`, `config`, `constants`, `logger`,
+`logging`.
+
+Container-backed tests compile only when both their module feature and
+`testing` are enabled; run everything with
+`cargo nextest run --all-features --lib` (requires Docker).
 
 ## Architecture
 
@@ -137,6 +188,22 @@ with variants: `Kube`, `Config`, `Network`, `Secrets`, `Build`, `Identity`,
   projects, templates, attachments, search, and real-time subscriptions.
 - **`wfectl/`** — gRPC client for the WFE workflow engine: list, run, logs,
   cancel, suspend, resume, and publish workflows remotely.
+- **`search/`, `matrix/`, `media/`, `monitoring/`** — REST clients for
+  OpenSearch, Matrix, LiveKit, and Prometheus/Loki/Grafana, built on the
+  `sunbeam-g2v` client stack (`ClientBuilder` → `Client` → `RestClient`).
+  Build one g2v `Client` with your auth (e.g.
+  `ClientBuilder::new(url).auth(BearerToken::new(token))`) and pass it to each
+  client's `new()`; `connect(domain)` constructors create unauthenticated
+  clients for the standard `*.{domain}` hostnames. Note: path-bearing base
+  URLs must end with a trailing slash (e.g. `https://host/_matrix/`) or the
+  last segment is dropped when request paths are joined.
+- **`build/`** — BuildKit image builds via the host `buildctl` CLI.
+- **`testing/`** (cargo feature `testing`) — testcontainers builders for
+  Sunbeam services, absorbed from the `sunbeam-test` crate: Postgres,
+  OpenBao, OpenSearch, Tuwunel, LiveKit, Prometheus, Loki, Grafana, Stalwart,
+  SearXNG, Headscale, OTel collector, the ory suite, OpenFGA, and the
+  `SsoGateway` full-stack orchestrator. The SDK's own integration tests use it
+  behind `#![cfg(feature = "testing")]` gates.
 
 ### Configuration
 

@@ -1,3 +1,17 @@
+---
+title: sunbeam up — Cluster Bring-Up
+description: Complete workflow-orchestrated local Kubernetes stack bring-up — phases, services, and verification.
+tags:
+  - kubernetes
+  - workflows
+  - guides
+category: guides
+nav_order: 31
+created_at: "2026-07-20"
+related:
+  - service-discovery-labels.md
+---
+
 # `sunbeam up` — Complete Cluster Bring-Up
 
 > **One command to go from zero to a working local Kubernetes development stack.**
