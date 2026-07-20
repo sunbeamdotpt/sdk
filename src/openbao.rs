@@ -486,3 +486,64 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+#[cfg(all(test, feature = "testing"))]
+mod container_tests {
+    use std::collections::HashMap;
+    use std::time::Duration;
+
+    use super::BaoClient;
+    use crate::testing::OpenBao;
+
+    /// Boot a dev-mode OpenBao container and return a root-token client once
+    /// the server answers seal status checks.
+    async fn boot() -> (
+        testcontainers::ContainerAsync<testcontainers::GenericImage>,
+        BaoClient,
+    ) {
+        let container = OpenBao::default()
+            .publish_ports()
+            .start()
+            .await
+            .expect("openbao should start");
+        let url = OpenBao::url(&container).await.expect("url should resolve");
+        let client = BaoClient::with_token(&url, OpenBao::DEFAULT_ROOT_TOKEN);
+
+        for _ in 0..30 {
+            if client.seal_status().await.is_ok() {
+                return (container, client);
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+        panic!("openbao did not become ready");
+    }
+
+    #[tokio::test]
+    async fn openbao_kv_roundtrip() {
+        let (_container, client) = boot().await;
+
+        let status = client.seal_status().await.expect("seal status");
+        assert!(status.initialized);
+        assert!(!status.sealed);
+
+        let mut data = HashMap::new();
+        data.insert("greeting".to_string(), "hello from sdk".to_string());
+        client
+            .kv_put("secret", "sdk-test", &data)
+            .await
+            .expect("kv put");
+
+        let read = client.kv_get("secret", "sdk-test").await.expect("kv get");
+        assert_eq!(
+            read.as_ref()
+                .and_then(|m| m.get("greeting"))
+                .map(String::as_str),
+            Some("hello from sdk")
+        );
+
+        client
+            .kv_delete("secret", "sdk-test")
+            .await
+            .expect("kv delete");
+    }
+}
