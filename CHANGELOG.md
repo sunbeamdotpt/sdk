@@ -1,5 +1,43 @@
 # Changelog
 
+## v3.0.0
+
+Third major revision of the Sunbeam SDK: a standalone library crate (the
+2.0.0-rc restructure and the calendar-versioned snapshots are superseded;
+1.x refers to the old CLI+SDK workspace).
+
+- feat: standalone library crate — CLI code removed; the crate is consumed as
+  a pure SDK (`sdk` on the `sunbeam` registry)
+- feat(auth): `AuthClient` for the sso-gateway — generated ConnectRPC IAM
+  surface (tenant, identity, OAuth2, federation, permission, SCIM,
+  applications, client credentials, agents) with tenant-id default headers
+- feat: service clients on the `sunbeam-g2v` client stack
+  (`ClientBuilder`/`RestClient`): OpenSearch (`search/`), LiveKit (`media/`),
+  Matrix (`matrix/`), Prometheus/Loki/Grafana (`monitoring/`), BuildKit
+  (`build/`)
+- feat: `kanban/` ConnectRPC client (boards, cards, projects, templates,
+  attachments, search, subscriptions) and `wfectl/` gRPC client for the WFE
+  workflow engine
+- feat: absorb the `sunbeam-test` crate as `src/testing/` behind the `testing`
+  cargo feature; sso-gateway integration tests are gated on the feature
+- feat(testing): container builders for Postgres, OpenBao, OpenSearch,
+  Tuwunel, LiveKit, Prometheus, Loki, Grafana, Stalwart, SearXNG, Headscale,
+  OTel collector, the ory suite, OpenFGA, and the `SsoGateway` orchestrator
+- test: testcontainers-backed tests for the OpenSearch, Matrix, LiveKit,
+  monitoring, and OpenBao clients (`--features testing`, requires Docker);
+  sso-gateway e2e suite serialized via `.config/nextest.toml`
+- feat!: per-module cargo features for tree-shaking — `auth`, `kanban`,
+  `wfectl`, `search`, `matrix`, `media`, `monitoring`, `build`, `kube`,
+  `openbao`, `secrets`, `vault-keystore`, `vpn`, `testing`;
+  `default = ["full"]` preserves previous behaviour
+- chore(deps): reqwest 0.13, thiserror 2, kube 4 + k8s-openapi 0.28,
+  indicatif 0.18, mockall 0.15, dirs 6, and a full in-range lock refresh
+- chore(deps): remove dead dependencies (gix, repo-rs-*, camino, indexmap,
+  ulid, comfy-table, rcgen, lettre)
+- chore(deps): pinned intentionally — connectrpc/buffa 0.7 (sunbeam-g2v 0.5.2
+  pairs with connectrpc 0.7), bollard 0.20 (testcontainers 0.27.3), and the
+  RustCrypto line (aes-gcm/hmac/sha2/rand move as one ecosystem)
+
 ## v1.1.2
 
 - 30dc4f9 fix(opensearch): make ML model registration idempotent
