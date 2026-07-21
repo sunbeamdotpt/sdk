@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v3.1.0
 
 Requests from the cli repo's v3 migration (agent-mail #18/#19/#20). All
 additive; no breaking changes.
