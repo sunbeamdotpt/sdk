@@ -73,6 +73,9 @@ secrets = ["kube", "openbao", "dep:rsa", "dep:pkcs8", "dep:pkcs1"]
 vault-keystore = ["dep:argon2", "dep:aes-gcm"]
 # VPN daemon control and environment detection.
 vpn = ["dep:sunbeam-net"]
+# `From<lettre>` error conversions for SMTP senders (opt-in; lettre is not
+# used by the SDK itself).
+lettre = ["dep:lettre"]
 # Testcontainers builders for Sunbeam services.
 testing = ["dep:testcontainers", "dep:bollard"]
 
@@ -148,6 +151,9 @@ anyhow = { version = "1", optional = true }
 
 # OpenBao / Vault
 vaultrs = { version = "0.8", optional = true }
+
+# Email (optional; only error types are used, for `From` conversions)
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport"], optional = true }
 
 # Workflow engine
 wfe = { version = "1.10.0", optional = true }

@@ -65,6 +65,7 @@ helper that resolves host and dynamic port for the running container.
 | `Kratos`, `Hydra`, `Keto` | `oryd/*` | ory suite, `serve public` |
 | `OpenFga` | `openfga/openfga` | in-memory datastore |
 | `SsoGateway` | `ghcr.io/sunbeamdotpt/sso-gateway` | full stack orchestrator |
+| `Kanban` | `ghcr.io/sunbeamdotpt/kanban` | full stack orchestrator (requires the `auth` feature) |
 
 ## The SsoGateway orchestrator
 
@@ -84,8 +85,38 @@ let endpoint = gateway.endpoint(); // http://127.0.0.1:<random-port>
 # }
 ```
 
-The default image tag is `v2026.07.20`; override per-run with the
+The default image tag is `latest`; override per-run with the
 `SSO_GATEWAY_IMAGE_TAG` environment variable or `.with_image(name, tag)`.
+
+When another container must reach the gateway (e.g. a service under test),
+attach the stack to a shared network with `.with_network(name)` and use
+`gateway.internal_url()` as the in-network gateway address.
+
+## The Kanban orchestrator
+
+`Kanban` boots everything the kanban server needs — Postgres, NATS
+(JetStream), OpenSearch, MinIO, and an [`SsoGateway`](#the-ssogateway-orchestrator)
+stack — on a private Docker network, provisions a `kanban-test` tenant and a
+`kanban-service` application (`permission:admin` + `tenant:admin`,
+`cross_tenant`) via the IAM API, creates the attachments bucket, and then
+starts the kanban image. It requires the `auth` feature for provisioning:
+
+```rust,no_run
+use sdk::kanban::KanbanClient;
+
+# #[tokio::main]
+# async fn main() {
+let stack = sdk::testing::Kanban::new().start().await.unwrap();
+
+let client = KanbanClient::connect(stack.endpoint()).unwrap();
+// Mint user tokens via stack.sso_gateway_endpoint(); the service
+// credentials are stack.client_id() / stack.client_secret() and the
+// provisioned tenant is stack.tenant_id().
+# }
+```
+
+The default image tags are `latest` for both kanban and sso-gateway;
+override with `.with_image(name, tag)` / `.with_gateway_image(name, tag)`.
 
 ## Writing container tests for SDK modules
 

@@ -4,8 +4,9 @@ pub mod client;
 
 /// Resolve the SSO access token from the unified config auth store.
 pub fn resolve_token(domain: &str) -> anyhow::Result<String> {
-    let tokens = crate::config::get_auth_tokens(domain)
-        .ok_or_else(|| anyhow::anyhow!("not logged in for domain {domain}"))?;
+    let tokens = crate::config::get_auth_tokens(domain).ok_or_else(|| {
+        anyhow::anyhow!("not logged in for domain {domain} — run `sunbeam auth login` first")
+    })?;
     if tokens.access_token.is_empty() {
         return Err(anyhow::anyhow!(
             "token cache is corrupt for domain {domain}"

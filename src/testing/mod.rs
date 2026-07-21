@@ -16,6 +16,8 @@
 //! * [`Headscale`](headscale::Headscale) – self-hosted Tailscale control server
 //! * [`Tuwunel`](tuwunel::Tuwunel) – Matrix homeserver
 //! * [`OtelCollector`](otelcol::OtelCollector) – OpenTelemetry collector
+//! * [`Kanban`](kanban::Kanban) – full kanban server stack (pre-built image + deps;
+//!   requires the `auth` feature)
 //!
 //! The image tags match the versions pinned by the Sunbeam deployment.
 //!
@@ -34,6 +36,7 @@
 //! | [`Tuwunel`] | `ghcr.io/matrix-construct/tuwunel` | Derived image with a baked-in `tuwunel.toml` |
 //! | [`Postgres`] | `postgres` | `ory/ory/ory` credentials; optional published port |
 //! | [`SsoGateway`] | `ghcr.io/sunbeamdotpt/sso-gateway` | Full stack (Postgres + Hydra + Kratos + a permission backend + gateway image) on a private network; exposes a single endpoint. Permission backend is OpenFGA by default; switch with `with_permissions_backend` |
+//! | [`Kanban`] | `ghcr.io/sunbeamdotpt/kanban` | Full stack (Postgres + NATS + OpenSearch + MinIO + an [`SsoGateway`] stack + kanban image) on a private network; provisions the `kanban-test` tenant and service credentials via IAM. Requires the `auth` feature |
 //!
 //! The builders default to an in-memory / single-node / dev-mode configuration and a
 //! log-based readiness check. When you need to reach a container from the test host,
@@ -103,6 +106,10 @@ pub mod grafana;
 pub mod headscale;
 /// Ory Hydra — OAuth2 / OIDC provider container builder.
 pub mod hydra;
+/// Kanban — full kanban server stack orchestrator (requires the `auth`
+/// feature for IAM provisioning).
+#[cfg(feature = "auth")]
+pub mod kanban;
 /// Ory Keto — authorization / permission engine container builder.
 pub mod keto;
 /// Ory Kratos — identity & user management container builder.
@@ -137,6 +144,8 @@ pub(crate) mod util;
 pub use grafana::Grafana;
 pub use headscale::Headscale;
 pub use hydra::Hydra;
+#[cfg(feature = "auth")]
+pub use kanban::{Kanban, KanbanHandle};
 pub use keto::Keto;
 pub use kratos::Kratos;
 pub use livekit::LiveKit;
@@ -148,7 +157,7 @@ pub use otelcol::OtelCollector;
 pub use postgres::Postgres;
 pub use prometheus::Prometheus;
 pub use searxng::SearXng;
-pub use sso_gateway::{PermissionBackend, SsoGateway};
+pub use sso_gateway::{PermissionBackend, SsoGateway, SsoGatewayHandle};
 pub use stalwart::Stalwart;
 pub use tuwunel::Tuwunel;
 pub use util::{container_bridge_ip, container_host_url};

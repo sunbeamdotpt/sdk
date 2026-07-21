@@ -77,7 +77,13 @@ println!("cluster: {}", health.status);
 | `secrets` | OpenBao init/unseal/seed (enables `kube` + `openbao`) |
 | `vault-keystore` | Vault transit keystore crypto |
 | `vpn` | VPN daemon control + kube proxy hook |
+| `lettre` | `From<lettre>` conversions on `SunbeamError` (opt-in) |
 | `testing` | Testcontainers builders for Sunbeam services |
+
+Types from the SDK's public-API dependencies are re-exported so consumers
+never need a version-matched direct dependency: `sdk::reqwest`,
+`sdk::kube_rs`, `sdk::k8s_openapi`, and `sdk::kanban::prelude` (connectrpc,
+buffa, buffa-types, sunbeam-g2v).
 
 See [Features](docs/features.md) for the full reference.
 

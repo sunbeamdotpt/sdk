@@ -38,11 +38,10 @@ user to install it.
 - **Serialization:** serde, serde_json, serde_yaml
 - **Tracing/Logging:** tracing + tracing-subscriber with custom line/json/threaded
   layers
-- **Crypto:** rsa, sha2, hmac, blake2, chacha20poly1305, hkdf, base64, rand,
-  aes-gcm, argon2, crypto_box, x25519-dalek, rcgen
-- **Email:** lettre (SMTP with tokio + rustls)
+- **Crypto:** rsa (+ pkcs8/pkcs1), sha2, hmac, base64, rand, aes-gcm, argon2
+- **Email:** lettre (optional `lettre` feature — `From` conversions only)
 - **Secrets:** vaultrs (OpenBao / Vault)
-- **Networking/VPN:** boringtun, smoltcp, ipnet, zstd
+- **Networking/VPN:** sunbeam-net (git)
 - **Testing:** cargo nextest, wiremock, pretty_assertions, tokio-test
 
 ## Package Structure
@@ -54,7 +53,7 @@ user to install it.
 ├── src/
 │   ├── lib.rs              # Module declarations, #![warn(missing_docs)]
 │   ├── error.rs            # SunbeamError, Result, ResultExt, bail! macro
-│   ├── auth.rs             # OAuth2 / SSO login flow
+│   ├── auth/               # sso-gateway IAM client (ConnectRPC, codegen via build.rs)
 │   ├── build/              # BuildKit container image build client (buildctl wrapper)
 │   ├── config.rs           # ~/.sunbeam/config.json (Context, active_context global)
 │   ├── constants.rs        # Shared constants
@@ -74,6 +73,7 @@ user to install it.
 │   │                       # openbao, opensearch, tuwunel, livekit, prometheus, loki,
 │   │                       # grafana, stalwart, searxng, headscale, otelcol, ory,
 │   │                       # openfga, sso-gateway orchestrator
+│   │                       # kanban orchestrator (with the auth feature)
 │   ├── vault_keystore.rs   # Vault transit keystore operations
 │   ├── vpn/                  # VPN daemon control and environment detection
 │   │   ├── cmds.rs           # connect/disconnect/status commands
@@ -149,7 +149,15 @@ sdk = { version = "3", default-features = false, features = ["search", "media"] 
 | `secrets` | `secrets` | enables `kube` + `openbao` |
 | `vault-keystore` | `vault_keystore` | transit keystore crypto |
 | `vpn` | `vpn` (+ VPN hook in `kube`) | sunbeam-net, daemon socket |
+| `lettre` | — (`From<lettre>` impls on `SunbeamError`) | opt-in, not in `full` |
 | `testing` | `testing` | testcontainers builders (dev/test only) |
+
+The `testing::Kanban` stack orchestrator additionally requires the `auth`
+feature (it provisions service credentials via the sso-gateway IAM client).
+
+Public-API dependency crates are re-exported so consumers avoid version
+skew: `sdk::reqwest`, `sdk::kube_rs`, `sdk::k8s_openapi`, and
+`sdk::kanban::prelude` (connectrpc, buffa, buffa-types, sunbeam-g2v).
 
 Always compiled (no feature): `error`, `config`, `constants`, `logger`,
 `logging`.

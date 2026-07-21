@@ -112,6 +112,7 @@ pub struct SsoGateway {
     openfga_tag: String,
     permissions_backend: PermissionBackend,
     extra_env: HashMap<String, String>,
+    network: Option<String>,
 }
 
 impl SsoGateway {
@@ -180,10 +181,26 @@ impl SsoGateway {
         self
     }
 
+    /// Attach the stack's containers to a specific Docker network instead of a
+    /// per-stack one.
+    ///
+    /// Use this when other containers (e.g. a service under test) must reach
+    /// the gateway by container name; [`SsoGatewayHandle::internal_url`] then
+    /// gives the gateway's in-network address. The caller is responsible for
+    /// the network's lifecycle — it is created implicitly by the first
+    /// container started on it.
+    pub fn with_network(mut self, network: impl Into<String>) -> Self {
+        self.network = Some(network.into());
+        self
+    }
+
     /// Start the full stack and return a handle that exposes only the gateway endpoint.
     pub async fn start(self) -> Result<SsoGatewayHandle, testcontainers::TestcontainersError> {
         let prefix = unique_prefix();
-        let network = format!("{prefix}-net");
+        let network = self
+            .network
+            .clone()
+            .unwrap_or_else(|| format!("{prefix}-net"));
 
         let postgres_name = format!("{prefix}-postgres");
         let hydra_name = format!("{prefix}-hydra");
@@ -329,6 +346,7 @@ impl SsoGateway {
 
         Ok(SsoGatewayHandle {
             endpoint,
+            internal_url: format!("http://{gateway_name}:{}", Self::PORT),
             _postgres: postgres,
             _hydra,
             _kratos,
@@ -350,6 +368,7 @@ impl Default for SsoGateway {
             openfga_tag: OpenFga::DEFAULT_TAG.to_owned(),
             permissions_backend: PermissionBackend::default(),
             extra_env: HashMap::new(),
+            network: None,
         }
     }
 }
@@ -360,6 +379,7 @@ impl Default for SsoGateway {
 /// the gateway endpoint address.
 pub struct SsoGatewayHandle {
     endpoint: String,
+    internal_url: String,
     #[allow(dead_code)]
     _postgres: ContainerAsync<GenericImage>,
     #[allow(dead_code)]
@@ -375,6 +395,16 @@ impl SsoGatewayHandle {
     /// Return the gateway's public HTTP endpoint.
     pub fn endpoint(&self) -> &str {
         &self.endpoint
+    }
+
+    /// Return the gateway's URL for other containers on the same Docker
+    /// network (`http://<gateway-container-name>:8080`).
+    ///
+    /// Use this for service containers that must call the gateway from inside
+    /// Docker (started with [`SsoGateway::with_network`]); from the test
+    /// process itself, use [`endpoint`](Self::endpoint).
+    pub fn internal_url(&self) -> &str {
+        &self.internal_url
     }
 
     /// Stop the gateway container and drop the stack.

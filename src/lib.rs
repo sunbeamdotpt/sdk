@@ -77,6 +77,18 @@ pub mod wfectl;
 #[cfg(feature = "kanban")]
 pub mod kanban;
 
+// Re-exports of public-API dependency crates. Consumers should name these
+// types through the SDK instead of adding direct dependencies, so their
+// versions always match the ones the SDK was compiled against (a second
+// kube/reqwest in the graph causes type mismatches with `kube::get_client()`
+// and the `From<reqwest::Error>` conversion). The kube crate is exported as
+// `kube_rs` because the SDK has its own `kube` module.
+#[cfg(feature = "kube")]
+pub use ::kube as kube_rs;
+#[cfg(feature = "kube")]
+pub use k8s_openapi;
+pub use reqwest;
+
 // Private support modules used by public modules above.
 #[cfg(feature = "kube")]
 mod exec;

@@ -20,8 +20,11 @@ use crate::openbao::BaoClient;
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-pub(crate) const ADMIN_USERNAME: &str = "estudio-admin";
-pub(crate) const PG_USERS: &[&str] = &[
+/// Username of the seeded cluster admin account.
+pub const ADMIN_USERNAME: &str = "estudio-admin";
+/// PostgreSQL roles that get OpenBao static roles and are granted to the
+/// `vault` user with ADMIN OPTION.
+pub const PG_USERS: &[&str] = &[
     "kratos",
     "hydra",
     "keto",
@@ -32,23 +35,23 @@ pub(crate) const PG_USERS: &[&str] = &[
     "press",
 ];
 
-pub(crate) const SMTP_URI: &str =
-    "smtp://stalwart.stalwart.svc.cluster.local:25/?skip_ssl_verify=true";
+/// Cluster-internal SMTP URI for the Stalwart mail server.
+pub const SMTP_URI: &str = "smtp://stalwart.stalwart.svc.cluster.local:25/?skip_ssl_verify=true";
 
 // ── Key generation ──────────────────────────────────────────────────────────
 
 /// Generate a Fernet-compatible key (32 random bytes, URL-safe base64).
-pub(crate) fn gen_fernet_key() -> String {
+pub fn gen_fernet_key() -> String {
     use base64::Engine;
     let mut buf = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut buf);
+    rand::rngs::OsRng.fill_bytes(&mut buf);
     base64::engine::general_purpose::URL_SAFE.encode(buf)
 }
 
 /// Generate an RSA 2048-bit DKIM key pair.
 /// Returns (private_pem_pkcs8, public_pem). Returns ("", "") on failure.
-pub(crate) fn gen_dkim_key_pair() -> (String, String) {
-    let mut rng = rand::thread_rng();
+pub fn gen_dkim_key_pair() -> (String, String) {
+    let mut rng = rand::rngs::OsRng;
     let bits = 2048;
     let private_key = match RsaPrivateKey::new(&mut rng, bits) {
         Ok(k) => k,
@@ -79,19 +82,44 @@ pub(crate) fn gen_dkim_key_pair() -> (String, String) {
 }
 
 /// Generate a URL-safe random token (32 bytes).
-pub(crate) fn rand_token() -> String {
+pub fn rand_token() -> String {
     use base64::Engine;
     let mut buf = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut buf);
+    rand::rngs::OsRng.fill_bytes(&mut buf);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf)
 }
 
 /// Generate a URL-safe random token with a specific byte count.
-pub(crate) fn rand_token_n(n: usize) -> String {
+pub fn rand_token_n(n: usize) -> String {
     use base64::Engine;
     let mut buf = vec![0u8; n];
-    rand::thread_rng().fill_bytes(&mut buf);
+    rand::rngs::OsRng.fill_bytes(&mut buf);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf)
+}
+
+/// Generate exactly 32 random alphanumeric characters.
+/// Used for secrets that require a specific string length (e.g. kratos cipher).
+///
+/// Bytes come from [`rand::rngs::OsRng`] and are rejection-sampled so the
+/// charset mapping is unbiased.
+pub fn rand_string_32() -> String {
+    const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    // 62 * 4 = 248; bytes >= 248 are rejected to avoid modulo bias.
+    const LIMIT: u8 = (CHARSET.len() * 4) as u8;
+    let mut out = String::with_capacity(32);
+    let mut buf = [0u8; 32];
+    while out.len() < 32 {
+        rand::rngs::OsRng.fill_bytes(&mut buf);
+        for &b in &buf {
+            if b < LIMIT {
+                out.push(CHARSET[(b % CHARSET.len() as u8) as usize] as char);
+                if out.len() == 32 {
+                    break;
+                }
+            }
+        }
+    }
+    out
 }
 
 // ── Port-forward helper ─────────────────────────────────────────────────────
@@ -206,7 +234,7 @@ pub async fn port_forward(
 }
 
 /// Port-forward to a service by finding a matching pod via label selector.
-pub(crate) async fn port_forward_svc(
+pub async fn port_forward_svc(
     namespace: &str,
     label_selector: &str,
     remote_port: u16,
@@ -228,7 +256,7 @@ pub(crate) async fn port_forward_svc(
 // ── OpenBao KV seeding ──────────────────────────────────────────────────────
 
 /// Read-or-create pattern: reads existing KV values, only generates missing ones.
-pub(crate) async fn get_or_create(
+pub async fn get_or_create(
     bao: &BaoClient,
     path: &str,
     fields: &[(&str, &(dyn Fn() -> String + Send + Sync))],
@@ -251,7 +279,7 @@ pub(crate) async fn get_or_create(
 // ── Database secrets engine ─────────────────────────────────────────────────
 
 /// Enable OpenBao database secrets engine and create PostgreSQL static roles.
-pub(crate) async fn configure_db_engine(bao: &BaoClient) -> Result<()> {
+pub async fn configure_db_engine(bao: &BaoClient) -> Result<()> {
     tracing::info!("Configuring OpenBao database secrets engine...");
     let pg_rw = "postgres-rw.data.svc.cluster.local:5432";
 
@@ -333,7 +361,7 @@ pub(crate) async fn configure_db_engine(bao: &BaoClient) -> Result<()> {
 }
 
 /// Execute a psql command on the CNPG primary pod.
-pub(crate) async fn psql_exec(cnpg_pod: &str, sql: &str) -> Result<(i32, String)> {
+pub async fn psql_exec(cnpg_pod: &str, sql: &str) -> Result<(i32, String)> {
     k::kube_exec(
         "data",
         cnpg_pod,
@@ -345,22 +373,29 @@ pub(crate) async fn psql_exec(cnpg_pod: &str, sql: &str) -> Result<(i32, String)
 
 // ── Kratos types (used by WFE kratos-admin step) ───────────────────────────
 
+/// Minimal Kratos identity as returned by the admin API.
 #[derive(Debug, Deserialize)]
-pub(crate) struct KratosIdentity {
-    pub(crate) id: String,
+pub struct KratosIdentity {
+    /// Identity UUID.
+    pub id: String,
 }
 
+/// Kratos recovery flow payload as returned by the admin API.
 #[derive(Debug, Deserialize)]
-pub(crate) struct KratosRecovery {
+pub struct KratosRecovery {
+    /// Recovery link URL, when the flow produced one.
     #[serde(default)]
-    pub(crate) recovery_link: String,
+    pub recovery_link: String,
+    /// Recovery code, when the flow produced one.
     #[serde(default)]
-    pub(crate) recovery_code: String,
+    pub recovery_code: String,
 }
 
 // ── Utility helpers ─────────────────────────────────────────────────────────
 
-pub(crate) async fn wait_pod_running(ns: &str, pod_name: &str, timeout_secs: u64) -> bool {
+/// Poll until `pod_name` in namespace `ns` reports phase `Running`, giving up
+/// after `timeout_secs`. Returns `false` on timeout or client errors.
+pub async fn wait_pod_running(ns: &str, pod_name: &str, timeout_secs: u64) -> bool {
     let client = match k::get_client().await {
         Ok(c) => c,
         Err(_) => return false,
@@ -384,7 +419,9 @@ pub(crate) async fn wait_pod_running(ns: &str, pod_name: &str, timeout_secs: u64
     false
 }
 
-pub(crate) fn scw_config(key: &str) -> String {
+/// Read a key from the Scaleway CLI config (`scw config get <key>`).
+/// Returns an empty string when `scw` is unavailable or the key is unset.
+pub fn scw_config(key: &str) -> String {
     std::process::Command::new("scw")
         .args(["config", "get", key])
         .output()
@@ -394,7 +431,9 @@ pub(crate) fn scw_config(key: &str) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) async fn delete_resource(ns: &str, kind: &str, name: &str) -> Result<()> {
+/// Delete a namespaced resource, resolving common VSO kinds by GVK.
+/// Unknown kinds are silently ignored.
+pub async fn delete_resource(ns: &str, kind: &str, name: &str) -> Result<()> {
     let client = k::get_client().await?;
 
     // Try common VSO kinds via explicit GVK first; otherwise fall back to
@@ -475,6 +514,14 @@ mod tests {
             .decode(&t)
             .expect("should be valid URL-safe base64");
         assert_eq!(decoded.len(), 50);
+    }
+
+    #[test]
+    fn test_rand_string_32_charset_and_length() {
+        let s = rand_string_32();
+        assert_eq!(s.len(), 32);
+        assert!(s.chars().all(|c| c.is_ascii_alphanumeric()));
+        assert_ne!(rand_string_32(), rand_string_32());
     }
 
     #[test]

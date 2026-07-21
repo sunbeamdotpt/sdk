@@ -41,11 +41,27 @@ The bare core (no features) compiles only `error`, `config`, `constants`,
 | `secrets` | `secrets` | `kube` + `openbao` + rsa/pkcs crypto |
 | `vault-keystore` | `vault_keystore` | argon2, aes-gcm |
 | `vpn` | `vpn`, VPN hook inside `kube` | sunbeam-net (git) |
+| `lettre` | — (`From<lettre>` impls on `SunbeamError`) | lettre (opt-in; not part of `full`) |
 | `testing` | `testing` | testcontainers, bollard |
+
+## Public-API dependency re-exports
+
+Several SDK types appear in signatures (`kube::Client`, `reqwest::Error`,
+`connectrpc::ConnectError`, `buffa::MessageField`, …). A consumer that adds
+its own direct dependency on a *different* version of those crates gets a
+second copy in the graph and type mismatches. To avoid version skew, name
+them through the SDK instead:
+
+- `sdk::reqwest`, `sdk::kube_rs`, `sdk::k8s_openapi`
+- `sdk::kanban::prelude` — re-exports `connectrpc`, `buffa`, `buffa-types`,
+  `sunbeam_g2v`, `KanbanClient`, and the generated `v1` surface
 
 ## Interactions to know
 
 - **`secrets` enables `kube` + `openbao`** automatically.
+- **`testing::Kanban` requires `auth`:** the kanban stack orchestrator
+  provisions its service credentials through the generated sso-gateway IAM
+  client, so the module only exists when both features are on.
 - **`vpn` augments `kube`:** when both are on, `kube::get_client()` rewrites
   the cluster URL to the loopback proxy inside the WireGuard trust boundary.
   Without `vpn`, the hook compiles out.

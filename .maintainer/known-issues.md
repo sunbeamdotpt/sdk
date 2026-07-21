@@ -13,10 +13,6 @@ note it in [log.md](log.md). Verify against the repo before trusting an entry.
 
 ## Stale docs
 
-- `AGENTS.md` tech-stack section lists **removed crates** (lettre, boringtun,
-  smoltcp, crypto_box, x25519-dalek, rcgen, blake2, hkdf) — v3.0.0 dropped
-  them (VPN moved to `sunbeam-net`). Rest of AGENTS.md is accurate.
-- `AGENTS.md` lists `src/auth.rs` — it's `src/auth/mod.rs`.
 - Older CHANGELOG entries (1.x) are commit-hash lists; v3.0.0 onward is
   prose. Historical, not worth rewriting.
 

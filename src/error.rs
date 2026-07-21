@@ -163,6 +163,30 @@ impl From<sunbeam_g2v::client::ClientError> for SunbeamError {
     }
 }
 
+#[cfg(any(feature = "auth", feature = "kanban"))]
+impl From<connectrpc::ConnectError> for SunbeamError {
+    fn from(e: connectrpc::ConnectError) -> Self {
+        SunbeamError::Network {
+            context: e.to_string(),
+            source: None,
+        }
+    }
+}
+
+#[cfg(feature = "lettre")]
+impl From<lettre::error::Error> for SunbeamError {
+    fn from(e: lettre::error::Error) -> Self {
+        SunbeamError::Other(format!("email error: {e}"))
+    }
+}
+
+#[cfg(feature = "lettre")]
+impl From<lettre::transport::smtp::Error> for SunbeamError {
+    fn from(e: lettre::transport::smtp::Error) -> Self {
+        SunbeamError::Other(format!("SMTP transport error: {e}"))
+    }
+}
+
 impl From<std::io::Error> for SunbeamError {
     fn from(e: std::io::Error) -> Self {
         SunbeamError::Io {

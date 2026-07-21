@@ -16,6 +16,8 @@ pub struct OpenSearch {
     tag: String,
     admin_password: String,
     published_ports: bool,
+    network: Option<String>,
+    container_name: Option<String>,
 }
 
 impl OpenSearch {
@@ -53,6 +55,21 @@ impl OpenSearch {
         self
     }
 
+    /// Attach the container to a specific Docker network.
+    ///
+    /// When no network is set, Docker's default bridge network is used.
+    pub fn with_network(mut self, network: impl Into<String>) -> Self {
+        self.network = Some(network.into());
+        self
+    }
+
+    /// Set the Docker container name so other containers can resolve it by name on the
+    /// same network.
+    pub fn with_container_name(mut self, name: impl Into<String>) -> Self {
+        self.container_name = Some(name.into());
+        self
+    }
+
     /// Return the REST API URL for a container that was started with published ports.
     pub async fn url(
         container: &ContainerAsync<GenericImage>,
@@ -81,6 +98,14 @@ impl OpenSearch {
             image = image.with_mapped_port(0, ContainerPort::Tcp(Self::REST_PORT));
         }
 
+        if let Some(network) = &self.network {
+            image = image.with_network(network);
+        }
+
+        if let Some(name) = self.container_name {
+            image = image.with_container_name(name);
+        }
+
         image.start().await
     }
 }
@@ -91,6 +116,8 @@ impl Default for OpenSearch {
             tag: Self::DEFAULT_TAG.to_owned(),
             admin_password: "MyS+ongPwd123".to_owned(),
             published_ports: false,
+            network: None,
+            container_name: None,
         }
     }
 }

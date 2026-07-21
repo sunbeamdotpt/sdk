@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+Requests from the cli repo's v3 migration (agent-mail #18/#19/#20). All
+additive; no breaking changes.
+
+- feat(secrets): make the seeding helpers public — consts `ADMIN_USERNAME`,
+  `PG_USERS`, `SMTP_URI`; fns `gen_fernet_key`, `gen_dkim_key_pair`,
+  `rand_token`, `rand_token_n`, `rand_string_32` (new), `port_forward_svc`,
+  `get_or_create`, `configure_db_engine`, `psql_exec`, `wait_pod_running`,
+  `scw_config`, `delete_resource`; structs `KratosIdentity`,
+  `KratosRecovery`. Secret generation now uses `rand::rngs::OsRng` throughout
+  (and `rand_string_32` rejection-samples to avoid modulo bias)
+- feat(error): `From<lettre::error::Error>` and
+  `From<lettre::transport::smtp::Error>` for `SunbeamError` behind the new
+  opt-in `lettre` cargo feature (lettre was dropped as dead in v3.0.0; it
+  returns as an optional, conversion-only dependency, not part of `full`)
+- feat(error): `From<connectrpc::ConnectError>` for `SunbeamError` (features
+  `auth`/`kanban`), mirroring the g2v `ClientError` conversion
+- feat(kanban): `KanbanClient::connect(url)` one-call constructor and
+  `KanbanClient::with_default_header(name, value)` for default per-call
+  headers (e.g. `x-sunbeam-object-id`)
+- feat(kanban): `sdk::kanban::prelude` re-exporting `connectrpc`, `buffa`,
+  `buffa-types`, `sunbeam_g2v`, `KanbanClient`, and the generated `v1`
+  surface — name public-API types through the prelude to avoid version skew
+- feat: re-export public-API dependency crates: `sdk::reqwest`,
+  `sdk::kube_rs`, `sdk::k8s_openapi` (the kube crate is renamed to `kube_rs`
+  to avoid colliding with the SDK's own `kube` module)
+- feat(testing): `Kanban` full-stack orchestrator (Postgres + NATS JetStream
+  + OpenSearch + MinIO + `SsoGateway` stack + kanban image on a shared
+  network; provisions the `kanban-test` tenant and a `kanban-service` app
+  via IAM; requires the `auth` feature)
+- feat(testing): `SsoGateway::with_network()` +
+  `SsoGatewayHandle::internal_url()` so other containers can reach the
+  gateway by container name; `OpenSearch::with_network()` /
+  `with_container_name()`
+- fix(wfectl): `resolve_token`'s not-logged-in error regains the
+  "run `sunbeam auth login` first" hint
+
 ## v3.0.0
 
 Third major revision of the Sunbeam SDK: a standalone library crate (the
