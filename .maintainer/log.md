@@ -47,3 +47,17 @@ all three threads. Decisions worth recording:
 - Housekeeping: fixed the AGENTS.md stale tech-stack/`src/auth.rs` entries
   from known-issues.md (lettre line now describes the opt-in feature) and
   removed those known-issue entries.
+
+## 2026-07-21 — v3.1.0 released; registry/gitea stages removed
+
+Cut v3.1.0: feature batch commit + `chore(release): 3.1.0` pushed to
+mainline. Mid-release the human declared the sunbeam cargo registry and
+gitea/tea release step dead infrastructure ("we don't need any of the
+sunbeam registries or gitea at all"), so the tag was pushed manually
+(`v3.1.0` on the release commit) — which also short-circuits CI's
+tag→publish→release chain via its `tag_already_existed` check — and the
+publish + release stages were stripped from `workflows.yaml` (pipeline is
+now checkout → lint → test-unit → tag). Charter and AGENTS.md updated to
+match. Recorded because the charter previously said "a version bump *is* a
+publish to the private registry" — that is no longer true; a version bump
+on mainline is just a git tag now.

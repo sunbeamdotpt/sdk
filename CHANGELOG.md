@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.1.1
+
+Real-boot fixes for the v3.1.0 `testing::Kanban` orchestrator, reported by
+cli's integration suite.
+
+- fix(testing): NATS readiness waits on **stderr** — nats-server logs
+  "Server is ready" there, not stdout (the stdout wait always timed out)
+- fix(testing): OpenSearch gets a host-side `/_cluster/health` poll
+  (green/yellow) before dependents start — the builder had no readiness
+  wait, and the kanban server does not retry its system migrations, so it
+  crashed with connection-refused on the backfill migration
+- fix(testing): kanban server readiness now polls `/healthz/live` from the
+  host instead of waiting for the "kanban listening" log line, which
+  differs across published image versions
+- feat(error): `From<lettre::address::AddressError>` for `SunbeamError`
+  behind the `lettre` feature
+
 ## v3.1.0
 
 Requests from the cli repo's v3 migration (agent-mail #18/#19/#20). All

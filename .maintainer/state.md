@@ -10,18 +10,14 @@ timestamp: 2026-07-21T00:00:00Z
 
 ## In flight
 
-- **cli v3-migration requests landed on main, untagged** (agent-mail #18/#19/#20,
-  all replied + acked): secrets helpers made public (+ new `rand_string_32`,
-  all secret generation moved to `OsRng`), opt-in `lettre` feature with the
-  two `From` impls, `From<connectrpc::ConnectError>`, `sdk::kanban::prelude`
-  re-exports, `KanbanClient::connect`/`with_default_header`,
-  `sdk::reqwest`/`sdk::kube_rs`/`sdk::k8s_openapi` re-exports, and the
-  `testing::Kanban` full-stack orchestrator (requires `auth`; new
-  `SsoGateway::with_network`/`internal_url` + `OpenSearch` network options).
-  CHANGELOG "Unreleased" section lists everything. cli drops their
-  `secrets_ext.rs` workaround when the tag lands.
-- **Waiting on the human: a release.** Charter reserves tagging; when they
-  cut one (likely v3.1.0), ping cli (thread #18) to bump and drop workarounds.
+- **v3.1.0 released** (tag on mainline): the cli v3-migration batch
+  (agent-mail #18/#19/#20, all replied + acked). cli was notified on thread
+  #18 to bump their pin and drop the workarounds.
+- **Release mechanics changed**: the sunbeam cargo registry and the
+  gitea/tea release stage are gone — `workflows.yaml` is now checkout →
+  lint → test-unit → tag, and consumers pin by git tag only. v3.1.0's tag
+  was pushed manually to short-circuit the old pipeline; future releases
+  can let the CI tag stage do it (it reads the version from `Cargo.toml`).
 
 ## Blocked / waiting
 

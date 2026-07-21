@@ -181,6 +181,13 @@ impl From<lettre::error::Error> for SunbeamError {
 }
 
 #[cfg(feature = "lettre")]
+impl From<lettre::address::AddressError> for SunbeamError {
+    fn from(e: lettre::address::AddressError) -> Self {
+        SunbeamError::Other(format!("email address error: {e}"))
+    }
+}
+
+#[cfg(feature = "lettre")]
 impl From<lettre::transport::smtp::Error> for SunbeamError {
     fn from(e: lettre::transport::smtp::Error) -> Self {
         SunbeamError::Other(format!("SMTP transport error: {e}"))

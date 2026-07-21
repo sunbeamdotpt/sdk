@@ -164,9 +164,10 @@ impl Kanban {
             .start()
             .await?;
 
+        // nats-server logs its readiness line on stderr, not stdout.
         let nats = GenericImage::new("nats", &self.nats_tag)
             .with_exposed_port(ContainerPort::Tcp(Self::NATS_PORT))
-            .with_wait_for(WaitFor::message_on_stdout("Server is ready"))
+            .with_wait_for(WaitFor::message_on_stderr("Server is ready"))
             .with_cmd(vec!["-js"])
             .with_network(&network)
             .with_container_name(&nats_name)
@@ -174,12 +175,24 @@ impl Kanban {
             .start()
             .await?;
 
+        // OpenSearch publishes its port so the test process can poll cluster
+        // health: the container has no log-based readiness wait and the kanban
+        // server crashes on its backfill migration when the REST API is not up
+        // yet (it does not retry system migrations).
         let opensearch = OpenSearch::new()
             .with_tag(&self.opensearch_tag)
             .with_network(&network)
             .with_container_name(&opensearch_name)
+            .publish_ports()
             .start()
             .await?;
+
+        let opensearch_url = util::container_host_url(&opensearch, OpenSearch::REST_PORT)
+            .await
+            .map_err(testcontainers::TestcontainersError::other)?;
+        wait_for_opensearch(&opensearch_url, 180)
+            .await
+            .map_err(testcontainers::TestcontainersError::other)?;
 
         // MinIO publishes its port so the test process can create the bucket.
         let minio = GenericImage::new("minio/minio", &self.minio_tag)
@@ -224,7 +237,9 @@ impl Kanban {
         let database_url = format!("postgres://sunbeam:sunbeam@{postgres_name}:5432/kanban");
         let mut image = GenericImage::new(&self.image_name, &self.image_tag)
             .with_exposed_port(ContainerPort::Tcp(Self::PORT))
-            .with_wait_for(WaitFor::message_on_stdout("kanban listening"))
+            // No log-based wait: the readiness log line differs across
+            // published image versions ("kanban listening" vs older builds).
+            // The host-side /healthz/live poll below is version-proof.
             .with_mapped_port(0, ContainerPort::Tcp(Self::PORT))
             .with_container_name(&server_name)
             .with_network(&network)
@@ -260,6 +275,9 @@ impl Kanban {
         let server = image.start().await?;
 
         let endpoint = util::container_host_url(&server, Self::PORT)
+            .await
+            .map_err(testcontainers::TestcontainersError::other)?;
+        wait_for_http_ok(&format!("{endpoint}/healthz/live"), 300)
             .await
             .map_err(testcontainers::TestcontainersError::other)?;
 
@@ -561,6 +579,29 @@ async fn wait_for_http_ok(url: &str, timeout_secs: u64) -> Result<(), BoxError> 
                 sleep(Duration::from_millis(500)).await;
             }
         }
+    }
+}
+
+/// Poll the OpenSearch cluster health endpoint until it reports green or
+/// yellow (a fresh single-node cluster goes yellow, never green).
+async fn wait_for_opensearch(base_url: &str, timeout_secs: u64) -> Result<(), BoxError> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()?;
+    let url = format!("{base_url}/_cluster/health");
+    let deadline = Instant::now() + Duration::from_secs(timeout_secs);
+    loop {
+        if let Ok(resp) = client.get(&url).send().await
+            && resp.status().is_success()
+            && let Ok(body) = resp.text().await
+            && (body.contains("\"status\":\"green\"") || body.contains("\"status\":\"yellow\""))
+        {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(format!("opensearch did not become healthy at {url}").into());
+        }
+        sleep(Duration::from_millis(500)).await;
     }
 }
 
