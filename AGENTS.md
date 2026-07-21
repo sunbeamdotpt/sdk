@@ -292,8 +292,9 @@ Pipeline stages:
 3. **test-unit** — `cargo nextest run --lib`
 4. **tag** (mainline only) — read version from `Cargo.toml`, create and push a
    Git tag
-5. **publish** (tag created only) — `cargo publish -p sdk --registry sunbeam`
-6. **release** (tag created only) — create a release via the `tea` CLI
+
+There is no registry publish or release-creation stage — consumers pin the
+crate as a git dependency by tag.
 
 Integration tests that require real services are **not** run in CI.
 

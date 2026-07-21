@@ -16,8 +16,7 @@
 # === Prerequisites ===
 #
 # 1. wfe-server deployed (see ../sbbb/base/wfe/)
-# 2. wfe-credentials Secret with sccache-*, aws-*, cargo-registry-token,
-#    gitea-token
+# 2. wfe-credentials Secret with sccache-*, aws-*, gitea-token
 # 3. wfe-ci image at src.sunbeam.pt/studio/wfe-ci:latest
 
 # --- Shared Templates ---
@@ -35,8 +34,6 @@ _templates:
     RUSTC_WRAPPER: /usr/local/cargo/bin/sccache
     CARGO_INCREMENTAL: "0"
     GITEA_TOKEN: ${WFE_GITEA_TOKEN}
-    TEA_TOKEN: ${WFE_GITEA_TOKEN}
-    CARGO_REGISTRIES_SUNBEAM_TOKEN: ${WFE_CARGO_REGISTRY_TOKEN}
 
   ci_config: &ci_config
     image: src.sunbeam.pt/studio/wfe-ci:latest
@@ -201,63 +198,6 @@ workflows:
             git push origin "$TAG"
             echo "##wfe[output tag_created=true]"
 
-  # === publish: sdk ===
-
-  - id: publish
-    name: Publish
-    version: 1
-    outputs:
-      published: bool
-    steps:
-      - name: publish-sdk
-        type: kubernetes
-        outputs:
-          - name: published
-        config:
-          <<: *ci_long_config
-          run: |
-            set -euo pipefail
-            cd /workspace/sdk
-            cargo publish -p sdk --registry sunbeam 2>&1 || echo "Already published"
-            echo "##wfe[output published=true]"
-        error_behavior:
-          type: retry
-          interval: 10s
-          max_retries: 2
-
-  # === release: create Gitea release ===
-
-  - id: release
-    name: Gitea Release
-    version: 1
-    inputs:
-      version: string
-    outputs:
-      release_created: bool
-      release_url: string
-    steps:
-      - name: create-gitea-release
-        type: kubernetes
-        outputs:
-          - name: release_created
-          - name: release_url
-        config:
-          <<: *ci_config
-          run: |
-            set -euo pipefail
-            TAG="v${VERSION}"
-            tea login add --name sunbeam --url https://github.com --token "$TEA_TOKEN" 2>/dev/null || true
-            if tea release create \
-              --repo sunbeamdotpt/sdk \
-              --tag "$TAG" \
-              --title "$TAG" \
-              --note "sdk ${VERSION} published to the sunbeam registry. Binaries are built out-of-band and attached manually." 2>&1; then
-              echo "##wfe[output release_created=true]"
-            else
-              echo "##wfe[output release_created=false]"
-            fi
-            echo "##wfe[output release_url=https://github.com/sunbeamdotpt/sdk/releases/tag/${TAG}]"
-
   # === ci: top-level orchestrator ===
 
   - id: ci
@@ -269,8 +209,7 @@ workflows:
       branch: string?
     outputs:
       version: string
-      published: bool
-      released: bool
+      tag_created: bool
 
     steps:
       - name: run-checkout
@@ -308,27 +247,4 @@ workflows:
           - name: tag_created
         config:
           workflow: tag
-          version: 1
-
-      - name: run-publish
-        type: workflow
-        when:
-          field: .outputs.tag_created
-          equals: true
-        outputs:
-          - name: published
-        config:
-          workflow: publish
-          version: 1
-
-      - name: run-release
-        type: workflow
-        when:
-          field: .outputs.tag_created
-          equals: true
-        outputs:
-          - name: released
-          - name: release_url
-        config:
-          workflow: release
           version: 1

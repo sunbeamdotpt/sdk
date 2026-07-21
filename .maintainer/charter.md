@@ -38,9 +38,9 @@ charter governs *authority and scope*.
 - **Breaking changes to `src/testing/` builder APIs** — they break three
   sibling repos' test suites at their next sdk bump. Also send a heads-up
   task to each affected repo identity (`kanban`, `nats-callout`, `proxy`).
-- **Releases.** CI tags and publishes from the `Cargo.toml` version on
-  mainline; a version bump *is* a publish to the private registry. The human
-  cuts releases.
+- **Releases.** CI tags from the `Cargo.toml` version on mainline; a version
+  bump *is* a release (consumers pin by git tag — there is no registry
+  publish or gitea release step anymore). The human cuts releases.
 - Unpinning or upgrading the deliberately pinned dependency pairs (rule 3)
 - Auth module changes (sso-gateway ConnectRPC `AuthClient`) — platform-wide
   blast radius
