@@ -61,3 +61,31 @@ now checkout → lint → test-unit → tag). Charter and AGENTS.md updated to
 match. Recorded because the charter previously said "a version bump *is* a
 publish to the private registry" — that is no longer true; a version bump
 on mainline is just a git tag now.
+
+## 2026-07-21 — v3.1.1: real-boot fixes for testing::Kanban
+
+cli booted the v3.1.0 orchestrator for real and found two deterministic
+bugs plus a shaky wait (mail #25). Fixes, and the reasoning:
+
+- **nats-server logs readiness on stderr** across all current tags. The
+  stdout log wait could never fire. Field report > source reading — I had
+  copied the wait message from kanban's own harness, which polls TCP from
+  the host instead of using a log wait, so the wrong stream never showed
+  up there either.
+- **OpenSearch had no readiness wait** and the kanban server does not
+  retry system migrations — deterministic connection-refused on the
+  backfill step. Fixed orchestrator-side (publish port + host poll for
+  green/yellow) rather than in the shared `OpenSearch` builder: changing
+  the shared builder's wait behavior would touch the three pinned
+  consumers' suites for no benefit they asked for. Orchestrator-local
+  fixes first; promote to the shared builder only when a second
+  orchestrator needs it.
+- **"kanban listening" vs "kanban service starting"**: both exist in
+  kanban source, but the latter fires *before* migrations and the former
+  isn't in older published images. Log waits against a versioned,
+  externally-built image are fragile — the orchestrator now polls
+  `/healthz/live` from the host. Principle: readiness of foreign images
+  goes through their HTTP health endpoints, not their log text.
+- v3.1.1 tagged manually per the new tag-only release flow; human
+  approved the tag in-session. All three cli threads (#25/#26/#27)
+  replied and acked.

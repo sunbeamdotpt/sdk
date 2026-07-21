@@ -10,14 +10,19 @@ timestamp: 2026-07-21T00:00:00Z
 
 ## In flight
 
-- **v3.1.0 released** (tag on mainline): the cli v3-migration batch
-  (agent-mail #18/#19/#20, all replied + acked). cli was notified on thread
-  #18 to bump their pin and drop the workarounds.
+- **v3.1.1 released** (tag on mainline): real-boot fixes for the
+  `testing::Kanban` orchestrator reported by cli's integration suite
+  (agent-mail #25, acked) — NATS readiness waits on stderr, OpenSearch gets
+  a host-side `/_cluster/health` poll before dependents, kanban readiness
+  is a `/healthz/live` poll instead of the version-dependent log line. Also
+  `From<lettre::address::AddressError>`. cli adopted v3.1.0 fully (their
+  secrets_ext.rs deleted, 7 direct deps dropped) and will switch their
+  kanban suite back to `sdk::testing::Kanban` on v3.1.1.
 - **Release mechanics changed**: the sunbeam cargo registry and the
   gitea/tea release stage are gone — `workflows.yaml` is now checkout →
-  lint → test-unit → tag, and consumers pin by git tag only. v3.1.0's tag
-  was pushed manually to short-circuit the old pipeline; future releases
-  can let the CI tag stage do it (it reads the version from `Cargo.toml`).
+  lint → test-unit → tag, and consumers pin by git tag only. Tags are
+  pushed manually alongside the release push (short-circuits the CI tag
+  stage either way — harmless, publish/release no longer exist).
 
 ## Blocked / waiting
 
