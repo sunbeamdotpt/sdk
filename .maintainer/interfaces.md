@@ -17,9 +17,10 @@ sdk = { git = "…/sdk", tag = "v3.0.0", default-features = false, features = ["
 ```
 
 Their test suites are built on `src/testing/` container builders. **Renaming
-or removing a builder breaks three repos** — escalate and notify each
-consumer via agent-mail before doing it (charter). Other modules are
-available to consumers but currently only `testing` is pinned by tag.
+or removing a builder breaks three repos** — escalate and file a heads-up
+card on each consumer's project board before doing it (charter). Other
+modules are available to consumers but currently only `testing` is pinned
+by tag.
 
 ## The naming trap: `sdk` vs `sunbeam-sdk`
 

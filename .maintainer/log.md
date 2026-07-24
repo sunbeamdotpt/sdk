@@ -122,3 +122,13 @@ code), #33 (recovery courier + sso config fields) replied and deferred to
 the next cycle — kept v3.2.0 scoped to the proto update per the human's
 request. Release: two commits + manually pushed `v3.2.0` tag per the
 tag-only flow, approved in-session.
+
+## 2026-07-24 — agent-mail → kanban ticketing migration
+
+Cross-repo coordination moved off agent-mail (deprecated) onto kanban cards
+via `sunbeam kanban` — the same migration sbbb did earlier. The AGENTS.md
+ritual, charter, state.md, and interfaces.md now describe the kanban flow;
+mail references in older entries (#18/#19/#20, replies #88–#90) are
+historical identifiers, kept so the record stays traceable. *Why:* the
+human standardized cross-repo tracking on kanban so tickets are visible to
+everyone, not just the two mail endpoints.

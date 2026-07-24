@@ -42,7 +42,8 @@ timestamp: 2026-07-24T00:00:00Z
 
 ## Pick up first
 
-- Check for open mail: `agent-mail inbox`.
+- Check for open cards on the `sdk` boards (`sunbeam kanban board list
+  sdk`, then `sunbeam kanban card list <board-id>`).
 - Verify whether `proto/sunbeam/kanban/v1/` copies are actually unused by
   `build.rs`; if so, propose removal (escalate first — proto layout may be
   contractual for someone).
