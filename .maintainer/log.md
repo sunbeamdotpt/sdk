@@ -188,3 +188,12 @@ shipped similar additive-with-notes changes as a minor. Commits: feature
 batch + `chore(release): 3.3.0`, tag `v3.3.0` created locally on the
 release commit per the tag-only flow — push held for explicit confirmation
 because pushing the tag *is* the release.
+
+## 2026-07-24 — v3.3.0 pushed
+
+Human confirmed the push in-session. `mainline` + `v3.3.0` pushed to
+origin; CLI-011 updated with the release note (bump tag, drop prewarm +
+string match, un-ignore device-poll test), SDK-001/002/003/010 descriptions
+stamped "Released in sdk v3.3.0", and cli notified on mail threads
+#39/#44/#33 (replies on open inbound threads, not new outbound tickets —
+the kanban rule covers ticket filing, not thread replies).

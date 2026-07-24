@@ -10,11 +10,11 @@ timestamp: 2026-07-24T00:00:00Z
 
 ## In flight
 
-- **v3.3.0 prepped on mainline** (release commit + local `v3.3.0` tag, NOT
-  yet pushed): #39 ensure_tool thread fix, #44 `SunbeamError::Connect`
-  variant, #33 recovery courier + `sso_url`/`sso_client_id` Context fields,
-  kanban `labels()`/`milestones()` accessors. Pushing the tag *is* the
-  release — confirm with the human before `git push origin mainline v3.3.0`.
+- **v3.3.0 RELEASED** (tag pushed 2026-07-24): #39 ensure_tool thread fix,
+  #44 `SunbeamError::Connect` variant, #33 recovery courier +
+  `sso_url`/`sso_client_id` Context fields, kanban `labels()`/`milestones()`
+  accessors. cli notified on threads #39/#44/#33; CLI-011 (cli's adoption
+  task) updated with the release note.
 
 ## Done this cycle
 
@@ -35,9 +35,8 @@ timestamp: 2026-07-24T00:00:00Z
 
 ## Pick up first
 
-- Push `mainline` + `v3.3.0` once the human confirms (tag push = release;
-  CI's tag stage is short-circuited by the manual tag per the tag-only
-  flow). Then notify cli — CLI-011 unblocks.
+- Watch for cli's adoption of v3.3.0 (CLI-011) and any fallout from the
+  `From<ConnectError>` → `Connect` variant change.
 - Verify whether `proto/sunbeam/kanban/v1/` copies are actually unused by
   `build.rs`; if so, propose removal (escalate first — proto layout may be
   contractual for someone).
