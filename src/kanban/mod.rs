@@ -133,6 +133,16 @@ impl KanbanClient {
         v1::GithubLinkServiceClient::new(self.transport(), self.config.clone())
     }
 
+    /// Client for labels.
+    pub fn labels(&self) -> v1::LabelServiceClient<ConnectTransport> {
+        v1::LabelServiceClient::new(self.transport(), self.config.clone())
+    }
+
+    /// Client for milestones.
+    pub fn milestones(&self) -> v1::MilestoneServiceClient<ConnectTransport> {
+        v1::MilestoneServiceClient::new(self.transport(), self.config.clone())
+    }
+
     /// Client for public boards.
     pub fn public_boards(&self) -> v1::PublicBoardServiceClient<ConnectTransport> {
         v1::PublicBoardServiceClient::new(self.transport(), self.config.clone())

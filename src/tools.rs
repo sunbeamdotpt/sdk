@@ -89,6 +89,20 @@ fn ensure_tool(tool: &str, version: &str) -> Result<PathBuf> {
         return Ok(dest);
     }
 
+    // reqwest::blocking owns a tokio runtime that panics when dropped inside
+    // an async context, so the download runs on a dedicated OS thread where
+    // the blocking client can live and die outside any caller runtime.
+    let name = tool.to_string();
+    let version = version.to_string();
+    std::thread::spawn(move || download_tool(&name, &version, &dest))
+        .join()
+        .map_err(|_| {
+            crate::error::SunbeamError::Other(format!("{tool} download thread panicked"))
+        })?
+}
+
+/// Download `tool` and extract its binary from the release archive to `dest`.
+fn download_tool(tool: &str, version: &str, dest: &std::path::Path) -> Result<PathBuf> {
     let (os, arch) = current_platform();
     let url = download_url(tool, version, os, arch);
     let entry_path = archive_entry_path(tool, os, arch);
@@ -121,18 +135,18 @@ fn ensure_tool(tool: &str, version: &str) -> Result<PathBuf> {
         if path.to_string_lossy() == entry_path {
             let mut data = Vec::new();
             entry.read_to_end(&mut data).ctx("Failed to read binary")?;
-            std::fs::write(&dest, &data)
+            std::fs::write(dest, &data)
                 .with_ctx(|| format!("Failed to write {}", dest.display()))?;
 
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755))
+                std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755))
                     .ctx("Failed to set permissions")?;
             }
 
             tracing::info!("Installed {tool} ({size} bytes)", size = data.len());
-            return Ok(dest);
+            return Ok(dest.to_path_buf());
         }
     }
 
@@ -203,6 +217,17 @@ mod tests {
             "helm binary should exist at: {}",
             path.display()
         );
+    }
+
+    #[test]
+    fn ensure_kustomize_works_inside_tokio_runtime() {
+        // Regression test: a cold tool cache used to panic here because
+        // reqwest::blocking drops its runtime inside the async context.
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async {
+            let path = ensure_kustomize().expect("ensure_kustomize should succeed");
+            assert!(path.exists());
+        });
     }
 
     #[test]

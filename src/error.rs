@@ -58,6 +58,22 @@ pub enum SunbeamError {
         source: Option<reqwest::Error>,
     },
 
+    /// ConnectRPC error with the structured error code preserved.
+    ///
+    /// Unlike [`SunbeamError::Network`], the ConnectRPC [`ErrorCode`] stays
+    /// intact so consumers can match on it structurally (e.g. retry only on
+    /// `ErrorCode::Unavailable`).
+    ///
+    /// [`ErrorCode`]: connectrpc::ErrorCode
+    #[cfg(any(feature = "auth", feature = "kanban"))]
+    #[error("{context}")]
+    Connect {
+        /// Structured ConnectRPC error code.
+        code: connectrpc::ErrorCode,
+        /// Human-readable description of what was happening.
+        context: String,
+    },
+
     /// OpenBao / Vault error.
     #[error("{0}")]
     Secrets(String),
@@ -111,6 +127,8 @@ impl SunbeamError {
             SunbeamError::Config(_) => exit::CONFIG,
             SunbeamError::Kube { .. } => exit::KUBE,
             SunbeamError::Network { .. } => exit::NETWORK,
+            #[cfg(any(feature = "auth", feature = "kanban"))]
+            SunbeamError::Connect { .. } => exit::NETWORK,
             SunbeamError::Secrets(_) => exit::SECRETS,
             SunbeamError::Build(_) => exit::BUILD,
             SunbeamError::Identity(_) => exit::IDENTITY,
@@ -166,9 +184,9 @@ impl From<sunbeam_g2v::client::ClientError> for SunbeamError {
 #[cfg(any(feature = "auth", feature = "kanban"))]
 impl From<connectrpc::ConnectError> for SunbeamError {
     fn from(e: connectrpc::ConnectError) -> Self {
-        SunbeamError::Network {
+        SunbeamError::Connect {
+            code: e.code,
             context: e.to_string(),
-            source: None,
         }
     }
 }
@@ -266,6 +284,11 @@ impl<T, E: Into<SunbeamError>> ResultExt<T> for std::result::Result<T, E> {
                     context: context.to_string(),
                     source,
                 },
+                #[cfg(any(feature = "auth", feature = "kanban"))]
+                SunbeamError::Connect { code, .. } => SunbeamError::Connect {
+                    code,
+                    context: context.to_string(),
+                },
                 SunbeamError::Io { source, .. } => SunbeamError::Io {
                     context: context.to_string(),
                     source,
@@ -290,6 +313,8 @@ impl<T, E: Into<SunbeamError>> ResultExt<T> for std::result::Result<T, E> {
             match inner {
                 SunbeamError::Kube { source, .. } => SunbeamError::Kube { context, source },
                 SunbeamError::Network { source, .. } => SunbeamError::Network { context, source },
+                #[cfg(any(feature = "auth", feature = "kanban"))]
+                SunbeamError::Connect { code, .. } => SunbeamError::Connect { code, context },
                 SunbeamError::Io { source, .. } => SunbeamError::Io { context, source },
                 SunbeamError::Secrets(msg) => SunbeamError::Secrets(format!("{context}: {msg}")),
                 SunbeamError::Config(msg) => SunbeamError::Config(format!("{context}: {msg}")),
@@ -441,5 +466,36 @@ mod tests {
         }
         let e = failing().unwrap_err();
         assert_eq!(e.to_string(), "something went wrong: 42");
+    }
+
+    #[cfg(any(feature = "auth", feature = "kanban"))]
+    #[test]
+    fn test_connect_error_preserves_code() {
+        let e = connectrpc::ConnectError::new(connectrpc::ErrorCode::Unavailable, "no upstream");
+        let e: SunbeamError = e.into();
+        match &e {
+            SunbeamError::Connect { code, context } => {
+                assert_eq!(*code, connectrpc::ErrorCode::Unavailable);
+                assert_eq!(context, "unavailable: no upstream");
+            }
+            other => panic!("expected Connect, got {other:?}"),
+        }
+        assert_eq!(e.exit_code(), exit::NETWORK);
+    }
+
+    #[cfg(any(feature = "auth", feature = "kanban"))]
+    #[test]
+    fn test_connect_error_ctx_preserves_code() {
+        let r: std::result::Result<(), connectrpc::ConnectError> = Err(
+            connectrpc::ConnectError::new(connectrpc::ErrorCode::NotFound, "gone"),
+        );
+        let e = r.ctx("listing boards").unwrap_err();
+        match e {
+            SunbeamError::Connect { code, context } => {
+                assert_eq!(code, connectrpc::ErrorCode::NotFound);
+                assert_eq!(context, "listing boards");
+            }
+            other => panic!("expected Connect, got {other:?}"),
+        }
     }
 }

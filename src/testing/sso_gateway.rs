@@ -39,7 +39,20 @@ selfservice:
         password:
           hooks:
             - hook: session
+    recovery:
+      enabled: true
+      ui_url: http://localhost:4433/recovery
+courier:
+  smtp:
+    connection_uri: "__COURIER_SMTP_CONNECTION_URI__"
 "#;
+
+/// Default courier SMTP URI for the harness. Nothing listens on the Kratos
+/// container's port 1025, so recovery emails are attempted but never
+/// delivered — enough to exercise the recovery flow itself. Use
+/// [`SsoGateway::with_kratos_courier_smtp`] to point the courier at a real
+/// SMTP container (e.g. stalwart) on the same network.
+const DEFAULT_COURIER_SMTP: &str = "smtps://test:test@localhost:1025/?skip_ssl_verify=true";
 
 /// Keto configuration tailored for sso-gateway tests.
 const KETO_CONFIG: &str = r#"dsn: memory
@@ -71,6 +84,14 @@ fn unique_prefix() -> String {
         .unwrap_or_default()
         .as_nanos();
     format!("sso{nanos:x}")
+}
+
+/// Render the Kratos config with the courier SMTP URI substituted in.
+fn kratos_config(courier_smtp: Option<&str>) -> String {
+    KRATOS_CONFIG.replace(
+        "__COURIER_SMTP_CONNECTION_URI__",
+        courier_smtp.unwrap_or(DEFAULT_COURIER_SMTP),
+    )
 }
 
 /// Permission backend the sso-gateway should use.
@@ -113,6 +134,7 @@ pub struct SsoGateway {
     permissions_backend: PermissionBackend,
     extra_env: HashMap<String, String>,
     network: Option<String>,
+    kratos_courier_smtp: Option<String>,
 }
 
 impl SsoGateway {
@@ -181,6 +203,18 @@ impl SsoGateway {
         self
     }
 
+    /// Point the Kratos recovery courier at a real SMTP server.
+    ///
+    /// The harness enables the Kratos recovery flow with a courier that
+    /// defaults to a dead-end URI (delivery is attempted but never succeeds).
+    /// Pass an SMTP connection URI reachable from the Kratos container — e.g.
+    /// `smtp://<stalwart-container-name>:25` for a stalwart container on the
+    /// same network — when a test needs recovery emails to actually arrive.
+    pub fn with_kratos_courier_smtp(mut self, connection_uri: impl Into<String>) -> Self {
+        self.kratos_courier_smtp = Some(connection_uri.into());
+        self
+    }
+
     /// Attach the stack's containers to a specific Docker network instead of a
     /// per-stack one.
     ///
@@ -223,11 +257,12 @@ impl SsoGateway {
             .start()
             .await?;
 
+        let kratos_config = kratos_config(self.kratos_courier_smtp.as_deref());
         let _kratos = Kratos::new()
             .with_tag(&self.kratos_tag)
             .with_network(&network)
             .with_container_name(&kratos_name)
-            .with_config(KRATOS_CONFIG)
+            .with_config(kratos_config)
             .start()
             .await?;
 
@@ -369,6 +404,7 @@ impl Default for SsoGateway {
             permissions_backend: PermissionBackend::default(),
             extra_env: HashMap::new(),
             network: None,
+            kratos_courier_smtp: None,
         }
     }
 }
@@ -441,6 +477,27 @@ async fn wait_for_gateway(endpoint: &str) -> Result<(), Box<dyn std::error::Erro
 #[cfg(all(test, feature = "testing"))]
 mod image_tests {
     use super::SsoGateway;
+
+    #[test]
+    fn kratos_config_enables_recovery_with_default_courier() {
+        let config = super::kratos_config(None);
+        assert!(config.contains("recovery:"), "recovery flow missing");
+        assert!(
+            config.contains(&format!(
+                "connection_uri: \"{}\"",
+                super::DEFAULT_COURIER_SMTP
+            )),
+            "default courier URI not substituted: {config}"
+        );
+        assert!(!config.contains("__COURIER_SMTP_CONNECTION_URI__"));
+    }
+
+    #[test]
+    fn kratos_config_substitutes_custom_courier() {
+        let config = super::kratos_config(Some("smtp://stalwart:25"));
+        assert!(config.contains("connection_uri: \"smtp://stalwart:25\""));
+        assert!(!config.contains("__COURIER_SMTP_CONNECTION_URI__"));
+    }
 
     #[tokio::test]
     #[ignore = "requires a pre-built sso-gateway image (see SsoGateway::DEFAULT_IMAGE_NAME)"]

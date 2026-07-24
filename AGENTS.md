@@ -193,7 +193,8 @@ with variants: `Kube`, `Config`, `Network`, `Secrets`, `Build`, `Identity`,
 ### Remote Services
 
 - **`kanban/`** — gRPC client for the Sunbeam Kanban service: boards, cards,
-  projects, templates, attachments, search, and real-time subscriptions.
+  projects, templates, attachments, labels, milestones, search, and
+  real-time subscriptions.
 - **`wfectl/`** — gRPC client for the WFE workflow engine: list, run, logs,
   cancel, suspend, resume, and publish workflows remotely.
 - **`search/`, `matrix/`, `media/`, `monitoring/`** — REST clients for

@@ -191,6 +191,18 @@ pub struct Context {
     )]
     pub kratos_admin_url: String,
 
+    /// sso-gateway base URL (e.g. "https://sso.example.com").
+    #[serde(default, rename = "sso-url", skip_serializing_if = "String::is_empty")]
+    pub sso_url: String,
+
+    /// OAuth2/OIDC client ID registered on the sso-gateway.
+    #[serde(
+        default,
+        rename = "sso-client-id",
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub sso_client_id: String,
+
     /// Profile reference: name string, inline object, or omitted.
     #[serde(default, skip_serializing_if = "ProfileRef::is_none")]
     pub profile: ProfileRef,

@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+Queued cli requests (agent-mail #39/#44/#33) plus a kanban client refresh.
+Additive; no breaking changes. Note: `From<connectrpc::ConnectError>` now
+yields the new `Connect` variant instead of `Network` — the Display output
+is unchanged, but match arms on `Network` for ConnectRPC failures must move.
+
+- fix(tools): `ensure_tool` downloads on a dedicated OS thread — the
+  `reqwest::blocking` runtime panicked when dropped inside an async context
+  with a cold tool cache (cli #39)
+- feat(error): `SunbeamError::Connect { code, context }` (behind
+  `auth`/`kanban`) preserves the structured ConnectRPC `ErrorCode`, so
+  consumers can match structurally instead of string-matching (cli #44)
+- feat(config): `sso_url` / `sso_client_id` fields on `config::Context`
+  (cli #33)
+- feat(testing): `SsoGateway` enables the Kratos recovery flow and courier;
+  `with_kratos_courier_smtp` points the courier at a real SMTP container
+  (cli #33)
+- feat(kanban): `KanbanClient::labels()` and `KanbanClient::milestones()`
+  accessors for the new upstream `LabelService` / `MilestoneService`
+
 ## v3.2.0
 
 Regenerated the sso-gateway ConnectRPC stubs from the latest
