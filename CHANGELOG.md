@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v3.3.0
 
 Queued cli requests (agent-mail #39/#44/#33) plus a kanban client refresh.
 Additive; no breaking changes. Note: `From<connectrpc::ConnectError>` now
