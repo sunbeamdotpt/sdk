@@ -13,7 +13,7 @@ use std::time::{Duration, SystemTime};
 
 use buffa::MessageField;
 use buffa_types::google::protobuf::value::Kind;
-use buffa_types::google::protobuf::{Struct, Value};
+use buffa_types::google::protobuf::{BoolValue, Struct, Value};
 use connectrpc::client::CallOptions;
 use sdk::auth::{AuthClient, v1};
 use tokio::sync::Mutex;
@@ -31,7 +31,7 @@ static COUNTER: AtomicU64 = AtomicU64::new(0);
 async fn start_stack() -> (String, sdk::testing::sso_gateway::SsoGatewayHandle) {
     support::init_docker_host();
 
-    let tag = std::env::var("SSO_GATEWAY_IMAGE_TAG").unwrap_or_else(|_| "v2026.07.20".to_string());
+    let tag = std::env::var("SSO_GATEWAY_IMAGE_TAG").unwrap_or_else(|_| "v2026.07.22".to_string());
     let gateway = SsoGateway::new()
         .with_image(
             sdk::testing::sso_gateway::SsoGateway::DEFAULT_IMAGE_NAME,
@@ -205,7 +205,9 @@ async fn sso_gateway_tenant_crud() {
 
 /// The application service should allow creating, getting, listing, updating
 /// and deleting OAuth2/OIDC applications when called with a token carrying
-/// the `application:admin` scope.
+/// the `application:admin` scope. The update is partial: fields left at their
+/// zero value keep the stored value, and `skip_consent` toggles via a
+/// `BoolValue` wrapper.
 #[tokio::test]
 async fn sso_gateway_application_crud() {
     let _guard = STACK_LOCK.lock().await;
@@ -228,6 +230,7 @@ async fn sso_gateway_application_crud() {
                 response_types: vec!["code".to_string()],
                 scope: vec!["tenant:read".to_string()],
                 token_endpoint_auth_method: "client_secret_post".to_string(),
+                skip_consent: true,
                 ..Default::default()
             },
             options.clone(),
@@ -239,6 +242,10 @@ async fn sso_gateway_application_crud() {
     assert!(
         !created_id.is_empty(),
         "created application should have an id"
+    );
+    assert!(
+        create_response.view().skip_consent,
+        "created application should be first-party (skip_consent)"
     );
 
     let get_response = client
@@ -255,6 +262,10 @@ async fn sso_gateway_application_crud() {
 
     assert_eq!(get_response.view().id, created_id);
     assert_eq!(get_response.view().name, name);
+    assert!(
+        get_response.view().skip_consent,
+        "GetApplication should report skip_consent"
+    );
 
     let list_response = client
         .application()
@@ -281,14 +292,16 @@ async fn sso_gateway_application_crud() {
     let update_response = client
         .application()
         .update_application_with_options(
+            // Partial update: only the name and skip_consent are set; every
+            // other field is left at its zero value and must keep the value
+            // stored at creation time.
             v1::UpdateApplicationRequest {
                 id: created_id.clone(),
                 name: updated_name.clone(),
-                redirect_uris: vec!["https://localhost/callback".to_string()],
-                grant_types: vec!["authorization_code".to_string()],
-                response_types: vec!["code".to_string()],
-                scope: vec!["tenant:read".to_string()],
-                token_endpoint_auth_method: "client_secret_post".to_string(),
+                skip_consent: MessageField::some(BoolValue {
+                    value: false,
+                    ..Default::default()
+                }),
                 ..Default::default()
             },
             options.clone(),
@@ -297,6 +310,25 @@ async fn sso_gateway_application_crud() {
         .expect("UpdateApplication should succeed");
 
     assert_eq!(update_response.view().name, updated_name);
+    assert!(
+        !update_response.view().skip_consent,
+        "skip_consent should toggle off via the BoolValue wrapper"
+    );
+    assert_eq!(
+        update_response
+            .view()
+            .redirect_uris
+            .iter()
+            .copied()
+            .collect::<Vec<_>>(),
+        vec!["https://localhost/callback"],
+        "unset repeated fields should keep their stored values"
+    );
+    assert_eq!(
+        update_response.view().token_endpoint_auth_method,
+        "client_secret_post",
+        "unset scalar fields should keep their stored values"
+    );
 
     client
         .application()

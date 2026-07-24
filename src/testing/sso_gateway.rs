@@ -446,7 +446,7 @@ mod image_tests {
     #[ignore = "requires a pre-built sso-gateway image (see SsoGateway::DEFAULT_IMAGE_NAME)"]
     async fn sso_gateway_stack_exposes_ready_endpoint() {
         let tag =
-            std::env::var("SSO_GATEWAY_IMAGE_TAG").unwrap_or_else(|_| "v2026.07.20".to_string());
+            std::env::var("SSO_GATEWAY_IMAGE_TAG").unwrap_or_else(|_| "v2026.07.22".to_string());
         let gateway = SsoGateway::new()
             .with_image(SsoGateway::DEFAULT_IMAGE_NAME, &tag)
             .start()

@@ -456,6 +456,9 @@ async fn provision_service_app(
                     scope: vec!["permission:admin".to_owned(), "tenant:admin".to_owned()],
                     token_endpoint_auth_method: "client_secret_post".to_owned(),
                     cross_tenant: true,
+                    // Machine-to-machine client (client_credentials only);
+                    // no browser authorization flow, so consent never applies.
+                    skip_consent: false,
                     __buffa_unknown_fields: Default::default(),
                 })
                 .await
