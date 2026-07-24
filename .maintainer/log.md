@@ -89,3 +89,36 @@ bugs plus a shaky wait (mail #25). Fixes, and the reasoning:
 - v3.1.1 tagged manually per the new tag-only release flow; human
   approved the tag in-session. All three cli threads (#25/#26/#27)
   replied and acked.
+
+## 2026-07-24 — v3.2.0: sso-gateway `skip_consent` regen
+
+Human reported an auth proto update; BSR diff (2026-07-16 → 2026-07-24
+commits) showed exactly one delta: `skip_consent` first-party flag on
+`Application` (13), `CreateApplicationRequest` (8), and
+`UpdateApplicationRequest` (9, `google.protobuf.BoolValue`), plus docs
+making `UpdateApplicationRequest` explicitly a partial update (zero-valued
+fields keep stored values). Regeneration is automatic — `build.rs` exports
+BSR HEAD, nothing in-repo pins the module — so "updating the protos"
+meant fixing compile breakage and covering the new surface:
+
+- `testing::Kanban`'s `provision_service_app` constructs
+  `CreateApplicationRequest` exhaustively (no `..Default::default()`), so
+  any new request field is a compile error there by design — it now sets
+  `skip_consent: false` (m2m client, no browser flow).
+- Integration suite round-trips the flag and asserts partial-update
+  semantics. Gateway image default bumped `v2026.07.20` → `v2026.07.22`
+  (verified via ghcr that v2026.07.22/latest were built 4 minutes after
+  the proto commit, so they implement the flag). Lesson: a BSR proto bump
+  without a matching gateway image bump makes integration tests fail
+  server-side — always confirm the image predates nothing.
+- BSR commit archaeology: to find "what changed since we last built" with
+  no in-repo pin, diff `buf export` of recent `buf registry module commit
+  list` entries and match against fields the code already references
+  (`cross_tenant` usage proved the last pull was ≥ 2026-07-16T12:57).
+
+Mail: #35 acked (clean bill); #39 (reqwest::blocking panic — real
+production bug, spawn_blocking fix queued), #44 (structured ConnectError
+code), #33 (recovery courier + sso config fields) replied and deferred to
+the next cycle — kept v3.2.0 scoped to the proto update per the human's
+request. Release: two commits + manually pushed `v3.2.0` tag per the
+tag-only flow, approved in-session.

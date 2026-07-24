@@ -3,26 +3,35 @@ type: State
 title: Current state of sdk
 description: What is in flight, what is blocked, what the next session should pick up first.
 tags: [state]
-timestamp: 2026-07-21T00:00:00Z
+timestamp: 2026-07-24T00:00:00Z
 ---
 
-# State — 2026-07-21
+# State — 2026-07-24
 
 ## In flight
 
-- **v3.1.1 released** (tag on mainline): real-boot fixes for the
-  `testing::Kanban` orchestrator reported by cli's integration suite
-  (agent-mail #25, acked) — NATS readiness waits on stderr, OpenSearch gets
-  a host-side `/_cluster/health` poll before dependents, kanban readiness
-  is a `/healthz/live` poll instead of the version-dependent log line. Also
-  `From<lettre::address::AddressError>`. cli adopted v3.1.0 fully (their
-  secrets_ext.rs deleted, 7 direct deps dropped) and will switch their
-  kanban suite back to `sdk::testing::Kanban` on v3.1.1.
-- **Release mechanics changed**: the sunbeam cargo registry and the
-  gitea/tea release stage are gone — `workflows.yaml` is now checkout →
-  lint → test-unit → tag, and consumers pin by git tag only. Tags are
-  pushed manually alongside the release push (short-circuits the CI tag
-  stage either way — harmless, publish/release no longer exist).
+- **v3.2.0 released** (tag on mainline): sso-gateway ConnectRPC stubs
+  regenerated from BSR HEAD — new `skip_consent` first-party flag on
+  `Application` / `CreateApplicationRequest` / `UpdateApplicationRequest`
+  (BoolValue toggle), and `UpdateApplicationRequest` is now a documented
+  partial update. `testing::Kanban` sets `skip_consent: false` on its m2m
+  app. Integration suite covers the flag round-trip + partial-update
+  semantics against gateway image `v2026.07.22` (new default;
+  `SSO_GATEWAY_IMAGE_TAG` still overrides). 5/5 live stack tests green,
+  358/358 unit, clippy/fmt clean.
+
+## Deferred to next cycle (all replied + acked to cli)
+
+- **#39 (production bug)**: `tools::ensure_tool` uses `reqwest::blocking` —
+  panics when the tool cache is cold inside async contexts. Non-breaking
+  fix: wrap the download in `tokio::task::spawn_blocking`; async-ifying
+  `ensure_tool`/`kustomize_build` is cleaner but breaks the public
+  signature → next major.
+- **#44**: `From<ConnectError>` collapses to `Network { context }` and
+  loses the structured `ErrorCode`. Plan: dedicated variant or structured
+  code field so consumers match structurally.
+- **#33**: enable the Kratos recovery courier in `testing::SsoGateway`;
+  add `sso_url` / `sso_client_id` to `config::Context` (additive).
 
 ## Blocked / waiting
 
@@ -37,6 +46,3 @@ timestamp: 2026-07-21T00:00:00Z
 - Verify whether `proto/sunbeam/kanban/v1/` copies are actually unused by
   `build.rs`; if so, propose removal (escalate first — proto layout may be
   contractual for someone).
-- If Docker + ghcr access are available, un-`#[ignore]`-run the new
-  `testing::kanban` stack test once to shake out real-boot issues (the
-  builder was verified by compile/clippy/unit tests only).
