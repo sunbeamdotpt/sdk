@@ -6,32 +6,25 @@ tags: [state]
 timestamp: 2026-07-24T00:00:00Z
 ---
 
-# State — 2026-07-24
+# State — 2026-07-24 (evening)
 
 ## In flight
 
-- **v3.2.0 released** (tag on mainline): sso-gateway ConnectRPC stubs
-  regenerated from BSR HEAD — new `skip_consent` first-party flag on
-  `Application` / `CreateApplicationRequest` / `UpdateApplicationRequest`
-  (BoolValue toggle), and `UpdateApplicationRequest` is now a documented
-  partial update. `testing::Kanban` sets `skip_consent: false` on its m2m
-  app. Integration suite covers the flag round-trip + partial-update
-  semantics against gateway image `v2026.07.22` (new default;
-  `SSO_GATEWAY_IMAGE_TAG` still overrides). 5/5 live stack tests green,
-  358/358 unit, clippy/fmt clean.
+- **v3.3.0 prepped on mainline** (release commit + local `v3.3.0` tag, NOT
+  yet pushed): #39 ensure_tool thread fix, #44 `SunbeamError::Connect`
+  variant, #33 recovery courier + `sso_url`/`sso_client_id` Context fields,
+  kanban `labels()`/`milestones()` accessors. Pushing the tag *is* the
+  release — confirm with the human before `git push origin mainline v3.3.0`.
 
-## Deferred to next cycle (all replied + acked to cli)
+## Done this cycle
 
-- **#39 (production bug)**: `tools::ensure_tool` uses `reqwest::blocking` —
-  panics when the tool cache is cold inside async contexts. Non-breaking
-  fix: wrap the download in `tokio::task::spawn_blocking`; async-ifying
-  `ensure_tool`/`kustomize_build` is cleaner but breaks the public
-  signature → next major.
-- **#44**: `From<ConnectError>` collapses to `Network { context }` and
-  loses the structured `ErrorCode`. Plan: dedicated variant or structured
-  code field so consumers match structurally.
-- **#33**: enable the Kratos recovery courier in `testing::SsoGateway`;
-  add `sso_url` / `sso_client_id` to `config::Context` (additive).
+- SDK-001/002/003 fixed and moved to done with notes; SDK-010 filed + done
+  (kanban labels/milestones).
+- Misfiled cards rehomed per charter: sso-gateway API gaps → sso project
+  (SSO-005..009), cli adoption task → cli project (CLI-011, blocked on the
+  next sdk tag).
+- Mail threads #39/#44/#33 replied, all four inbox messages acked; inbox
+  zero. cli knows workarounds must stay until the tag lands.
 
 ## Blocked / waiting
 
@@ -42,8 +35,9 @@ timestamp: 2026-07-24T00:00:00Z
 
 ## Pick up first
 
-- Check for open cards on the `sdk` boards (`sunbeam kanban board list
-  sdk`, then `sunbeam kanban card list <board-id>`).
+- Push `mainline` + `v3.3.0` once the human confirms (tag push = release;
+  CI's tag stage is short-circuited by the manual tag per the tag-only
+  flow). Then notify cli — CLI-011 unblocks.
 - Verify whether `proto/sunbeam/kanban/v1/` copies are actually unused by
   `build.rs`; if so, propose removal (escalate first — proto layout may be
   contractual for someone).

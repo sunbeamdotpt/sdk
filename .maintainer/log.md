@@ -132,3 +132,59 @@ mail references in older entries (#18/#19/#20, replies #88–#90) are
 historical identifiers, kept so the record stays traceable. *Why:* the
 human standardized cross-repo tracking on kanban so tickets are visible to
 everyone, not just the two mail endpoints.
+
+## 2026-07-24 — Deferred cli batch (#39/#44/#33) + kanban client refresh
+
+Picked up the three items deferred from the v3.2.0 cycle, all on mainline,
+untagged (releases are the human's call):
+
+- **#39 ensure_tool panic**: fixed with a dedicated OS thread for the
+  download, not `spawn_blocking`. *Why:* `ensure_tool` is sync and must stay
+  sync until the next major; `spawn_blocking` needs a runtime handle and
+  only moves the problem — the reqwest::blocking runtime would still be
+  dropped from a thread the caller's runtime knows about. A plain
+  `std::thread::spawn` + `join` is runtime-agnostic and the blocking client
+  lives and dies entirely outside any async context. Regression test runs
+  `ensure_kustomize` inside `Runtime::block_on`.
+- **#44 structured ConnectError code**: new `SunbeamError::Connect { code,
+  context }` variant behind `auth`/`kanban`, exit code still NETWORK,
+  Display unchanged. Chose a variant over a `code` field on `Network`
+  because every `Network` construction site uses struct-literal syntax — a
+  new field would touch them all, and connectrpc isn't compiled in most
+  feature combos. Noted in the changelog that match arms on `Network` for
+  ConnectRPC failures must move (cli string-matches today; Display is
+  unchanged so nothing breaks at runtime).
+- **#33 recovery courier + config fields**: `testing::SsoGateway` enables
+  the Kratos recovery flow + courier with a default dead-end SMTP URI
+  (mirrors `sso-gateway/deploy/kratos.yml`), overridable via
+  `with_kratos_courier_smtp` so tests that start stalwart can get real
+  delivery. `config::Context` gained additive `sso_url` / `sso_client_id`.
+- **Kanban client**: human asked mid-session to "update the kanban client".
+  BSR HEAD had gained `LabelService` and `MilestoneService` (stubs regen
+  automatically via `buf export` in build.rs); the handwritten wrapper
+  lacked accessors. Added `KanbanClient::labels()` / `::milestones()`.
+  `events.proto` is messages-only, no service. Card SDK-010.
+
+Ticketing hygiene: SDK-004..008 were sso-gateway API gaps misfiled on sdk's
+dev board and SDK-009 was cli's adoption task — the charter says file on
+the owning team's project board, and both `sso` and `cli` projects exist.
+Refiled as SSO-005..009 and CLI-011 (descriptions carry the old refs) and
+deleted the sdk copies. SDK-001..003 moved to done with fix notes.
+
+Validation: fmt clean, clippy clean (default + `testing`), 361/361 unit
+tests, courier substitution tests green. Replied on mail threads #39/#44/#33
+and acked all four open messages; inbox zero.
+
+## 2026-07-24 — v3.3.0 prepped (minor, not major)
+
+Human approved release prep in-session. Version call: **3.3.0, not 4.0.0**,
+despite `From<ConnectError>` now yielding a new `Connect` variant.
+Reasoning: Display output and exit codes are unchanged, so nothing breaks
+at runtime; the only compile-level hazard is an exhaustive `match` on
+`SunbeamError`, and the three tag-pinned consumers (kanban, nats-callout,
+proxy) use the `testing` builders, not error matching; cli vendors its own
+v2 crate. The changelog carries the migration note. Precedent: v3.1.0
+shipped similar additive-with-notes changes as a minor. Commits: feature
+batch + `chore(release): 3.3.0`, tag `v3.3.0` created locally on the
+release commit per the tag-only flow — push held for explicit confirmation
+because pushing the tag *is* the release.
