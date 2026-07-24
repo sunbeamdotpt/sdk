@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.2.0
+
+Regenerated the sso-gateway ConnectRPC stubs from the latest
+`buf.build/sunbeamdotpt/sso-gateway` module. Additive; no breaking changes.
+
+- feat(auth): `skip_consent` first-party flag on `Application`,
+  `CreateApplicationRequest`, and `UpdateApplicationRequest` (the latter via
+  a `google.protobuf.BoolValue` toggle; omitting it leaves the flag
+  unchanged). `UpdateApplicationRequest` is now documented as a partial
+  update — fields left at their zero value keep the stored value
+- fix(testing): `Kanban` orchestrator provisions its service app with
+  `skip_consent: false` (machine-to-machine client; no browser flow)
+- test(auth): sso-gateway integration suite now covers `skip_consent`
+  round-trips and partial-update semantics, and runs against gateway image
+  `v2026.07.22` by default (`SSO_GATEWAY_IMAGE_TAG` still overrides)
+
 ## v3.1.1
 
 Real-boot fixes for the v3.1.0 `testing::Kanban` orchestrator, reported by
