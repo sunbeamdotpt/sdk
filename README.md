@@ -16,7 +16,8 @@ remote service clients (sso-gateway, Kanban, WFE, OpenSearch, Matrix, LiveKit,
 monitoring), Kubernetes manifest management, VPN integration, OpenBao secrets,
 and testcontainer builders for integration testing.
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+[![Matrix](https://img.shields.io/badge/chat-%23hello%3Asunbeam.pt-0dbd8b?logo=matrix)](https://matrix.to/#/#hello:sunbeam.pt)
 [![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org/)
 
 ## Using the SDK
