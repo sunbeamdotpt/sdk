@@ -10,8 +10,10 @@ timestamp: 2026-07-31T00:00:00Z
 
 ## In flight
 
-- **v3.3.1 RELEASED** (mainline push 2026-07-31, commit `8f5ea4fd`; CI tags
-  from `Cargo.toml`). Patch: SDK-011 test coverage only, no API changes.
+- **v3.3.1 RELEASED** (mainline push 2026-07-31, release commit `8f5ea4fd`;
+  tag `v3.3.1` pushed locally — the CI tag stage does not fire on push, the
+  tag-only flow is the real mechanism; see log). Patch: SDK-011 test
+  coverage only, no API changes.
 - **SDK-012 (kanban Assignee email)** blocked on **KANBAN-035** (filed on
   kanban's dev board, linked `depends_on`). The proto source of truth is the
   kanban repo. Once `email` lands on `buf.build/sunbeamdotpt/kanban`: sdk

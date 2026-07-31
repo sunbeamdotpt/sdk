@@ -228,3 +228,10 @@ the kanban rule covers ticket filing, not thread replies).
   `+refs/heads/refactor/remove-sdk:...` (deleted branch) — every fetch
   failed. Reset to the standard wildcard refspec. Suspect a past session
   narrowed it for a one-off fetch.
+
+Correction to the v3.3.1 entry above: the workflows.yaml tag stage does NOT
+fire on push — `v3.2.0`/`v3.3.0` are lightweight local tags, not CI
+annotations. The tag-only flow is the actual release mechanism: create the
+tag locally on the release commit, push it. `v3.3.1` was tagged locally on
+`8f5ea4fd` and pushed ~20 min after the mainline push once the missing tag
+was noticed.
