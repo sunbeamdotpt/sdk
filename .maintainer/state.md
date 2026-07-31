@@ -14,13 +14,16 @@ timestamp: 2026-07-31T00:00:00Z
   started then paused by the human mid-session; no repo changes made yet
   (surveyed only: ~520 `unwrap`/`expect`/`*_or_default` matches across 50
   files, most in `#[cfg(test)]`). Card has full config spec.
+- **v3.3.2 RELEASED** (2026-07-31, release commit `2c5aa642`, tag `v3.3.2`
+  pushed) — SDK-012 unit tests + SDK-015 end-to-end coverage +
+  `testing::Kanban` identity scopes. Cut so cli can pin it for its next
+  cut.
 - **v3.3.1 RELEASED** (mainline push 2026-07-31, release commit `8f5ea4fd`;
   tag `v3.3.1` pushed locally — the CI tag stage does not fire on push, the
   tag-only flow is the real mechanism; see log). Patch: SDK-011 test
   coverage only, no API changes.
-- Uncommitted in the worktree: SDK-012 unit tests + SDK-015 integration
-  test (both in `src/kanban/mod.rs`), and `identity:admin`/`identity:read`
-  scopes in `testing::Kanban` provisioning (`src/testing/kanban.rs`).
+- Worktree clean; SDK-014 (clippy ban) paused by the human, no repo changes
+  made for it.
 
 ## Done this cycle
 

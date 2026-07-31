@@ -277,3 +277,17 @@ was noticed.
 - **Paused SDK-014 (clippy ban) mid-start on human's instruction**; card
   stays in progress per "more than one card in progress is fine". No repo
   changes made for it.
+
+## 2026-07-31 — v3.3.2 release train
+
+- **v3.3.2 cut and pushed on the human's go-ahead** ("push the release
+  train... conventional commits") so cli can pin it for its next cut.
+  Patch level: test coverage + testing-builder provisioning, no API
+  changes — same precedent as v3.3.1. Commits: `test(kanban):` (SDK-012 +
+  SDK-015), `chore(maintainer):`, `chore(release): 3.3.2`; lightweight tag
+  `v3.3.2` on `2c5aa642`, pushed with mainline. Gates green before the
+  bump commit: 365/365 lib tests, clippy `-D warnings`, fmt.
+- **First release-skill run**: wrote `.sunbeam/RELEASE_RULE.md` capturing
+  the tag-only mechanism, then deleted it uncommitted on the human's
+  instruction — they are turning the release flow into a skill instead;
+  the rule file should not live in the repo.
