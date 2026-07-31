@@ -235,3 +235,45 @@ annotations. The tag-only flow is the actual release mechanism: create the
 tag locally on the release commit, push it. `v3.3.1` was tagged locally on
 `8f5ea4fd` and pushed ~20 min after the mainline push once the missing tag
 was noticed.
+
+## 2026-07-31 — SDK-012 unit tests, SDK-015 end-to-end, two cross-repo cards
+
+- **SDK-012 closed with unit-level coverage.** KANBAN-035's proto hit BSR
+  (`string email = 4` on `Assignee`; verified via `buf export`). Regen is
+  build-time and gitignored, so the only repo artifact is two tests:
+  serde roundtrip and a wiremock `GetCard` decode through `KanbanClient`'s
+  default Connect/proto path. Gotcha: `build.rs` re-exports BSR only on
+  `.git/HEAD`/lima-yaml change — `touch build.rs` to force a fresh export.
+  Human caught real PII (a maintainer email) in the first draft; tests use
+  `user@example.com` / `kanban-assignee@example.com`.
+- **SDK-015 closed after an 18-run debug chain.** The end-to-end test
+  (kanban `v2026.07.12`, gateway pinned `v2026.07.21`) is green in ~20s
+  warm. Each layer, in order: (1) RootlessKit port-bind collisions from
+  three abandoned sso test stacks + leaked never-started containers —
+  gateway stuck `Created`, fixed by docker cleanup (human-approved);
+  (2) `sso-gateway:latest` (2026-07-30) exit-1 on fresh OpenFGA bootstrap,
+  "type 'entitlements' not found" — filed **SSO-029**; the sdk smoke test
+  passes superficially because readiness precedes the crashing bootstrap
+  step; (3) service app needed `identity:admin` (test-side provisioning)
+  and `identity:read` (the kanban server's own identity client requests
+  exactly that scope — Hydra 400s otherwise); both added to
+  `testing::Kanban` provisioning; (4) tenant schema registry starts empty
+  — seed the base identity schema via `CreateIdentitySchema` before
+  `CreateIdentity`; (5) `AddMember` relations are `admin|editor|viewer`,
+  not the proto comment's `administer|edit|view`; (6) AssignCard/GetCard
+  check `edit`/`view` on the **KanbanCard** object, not the parent board —
+  `x-sunbeam-object-id: <card-id>`. Filed **KANBAN-052** with all three
+  doc drifts. Also learned: canonical assignee subject is `user:<ulid>`.
+- **Why the gateway pin lives in the test, not the orchestrator default:**
+  `latest` is the floating contract for `SsoGateway::DEFAULT_IMAGE_TAG`;
+  pinning the default would hide SSO-029 from every consumer. The pin is a
+  local workaround with a comment pointing at the reason; remove it once
+  SSO-029 is fixed.
+- **RootlessKit flakiness is environmental, not harness bugs** — but the
+  orchestrator gives no signal when a container sits `Created`; the tell
+  is `docker inspect` `State.Error` mentioning
+  `RootlessKit PortManager.AddPort`. If it recurs, prune stale test stacks
+  first.
+- **Paused SDK-014 (clippy ban) mid-start on human's instruction**; card
+  stays in progress per "more than one card in progress is fine". No repo
+  changes made for it.
