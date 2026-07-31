@@ -453,7 +453,16 @@ async fn provision_service_app(
                     redirect_uris: vec![],
                     grant_types: vec!["client_credentials".to_owned()],
                     response_types: vec!["token".to_owned()],
-                    scope: vec!["permission:admin".to_owned(), "tenant:admin".to_owned()],
+                    // identity:admin lets tests provision directory users
+                    // (e.g. assignee email resolution checks); identity:read
+                    // is the scope the kanban server's own identity client
+                    // requests when resolving assignee profiles.
+                    scope: vec![
+                        "permission:admin".to_owned(),
+                        "tenant:admin".to_owned(),
+                        "identity:admin".to_owned(),
+                        "identity:read".to_owned(),
+                    ],
                     token_endpoint_auth_method: "client_secret_post".to_owned(),
                     cross_tenant: true,
                     // Machine-to-machine client (client_credentials only);

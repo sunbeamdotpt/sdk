@@ -205,6 +205,72 @@ mod tests {
         assert!(matches!(err, KanbanClientError::InvalidUrl(_)));
     }
 
+    // SDK-012: the Assignee proto gained `email = 4` so clients can fall back
+    // to it when display_name is empty (liminal LIMINAL-034).
+    #[test]
+    fn test_assignee_carries_email_field() {
+        let assignee = v1::Assignee {
+            subject: "user:01KWF0KYZ0FRNR23ZXAWJZV43T".into(),
+            email: "user@example.com".into(),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&assignee).unwrap();
+        assert_eq!(json["email"], "user@example.com");
+        let decoded: v1::Assignee = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded.email, "user@example.com");
+        assert_eq!(decoded.subject, "user:01KWF0KYZ0FRNR23ZXAWJZV43T");
+    }
+
+    // SDK-012: the email survives the real client decode path (ConnectRPC
+    // unary, proto codec — the KanbanClient default).
+    #[tokio::test]
+    async fn test_get_card_decodes_assignee_email() {
+        use buffa::Message as _;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let response = v1::GetCardResponse {
+            card: buffa::MessageField::some(v1::Card {
+                id: "01KYTNTSQ0VN4CYD438TA38W9S".into(),
+                assignees: vec![v1::Assignee {
+                    subject: "user:01KWF0KYZ0FRNR23ZXAWJZV43T".into(),
+                    email: "user@example.com".into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        Mock::given(method("POST"))
+            .and(path("/sunbeam.kanban.v1.CardService/GetCard"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "application/proto")
+                    .set_body_bytes(response.encode_to_bytes()),
+            )
+            .mount(&server)
+            .await;
+
+        let client = KanbanClient::connect(server.uri()).unwrap();
+        let card = client
+            .cards()
+            .get_card(v1::GetCardRequest {
+                card_id: "01KYTNTSQ0VN4CYD438TA38W9S".into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .into_owned()
+            .card
+            .into_option()
+            .unwrap();
+
+        assert_eq!(card.assignees.len(), 1);
+        assert_eq!(card.assignees[0].email, "user@example.com");
+        assert!(card.assignees[0].display_name.is_empty());
+    }
+
     #[test]
     fn test_kanban_client_with_default_header() {
         let client = KanbanClient::connect("https://kanban.example.com")
@@ -214,5 +280,327 @@ mod tests {
             client.config.default_headers().get("x-sunbeam-object-id"),
             Some(&http::HeaderValue::from_static("board-123"))
         );
+    }
+}
+
+/// End-to-end tests against the real kanban server image, orchestrated by
+/// [`crate::testing::Kanban`]. Requires the `auth` feature (the orchestrator
+/// provisions credentials via the IAM client).
+#[cfg(all(test, feature = "testing", feature = "auth"))]
+mod stack_tests {
+    use super::*;
+    use crate::auth::{AuthClient, v1 as iam};
+    use crate::testing;
+
+    use buffa::MessageField;
+    use buffa_types::google::protobuf::value::Kind;
+    use buffa_types::google::protobuf::{Struct, Value};
+    use connectrpc::client::CallOptions;
+    use sunbeam_g2v::client::BearerToken;
+
+    /// Kanban image with server-side Assignee email population (KANBAN-024 /
+    /// KANBAN-035).
+    const KANBAN_IMAGE_TAG: &str = "v2026.07.12";
+    /// Pinned sso-gateway image: `latest` (2026-07-30) crashes on fresh-OpenFGA
+    /// bootstrap — "type 'entitlements' not found" on the entitlement tuple
+    /// write — while v2026.07.21 is known to stay up.
+    const GATEWAY_IMAGE_TAG: &str = "v2026.07.21";
+    /// Base identity schema (`traits.email`, required) matching the one baked
+    /// into the sso-gateway test harness's Kratos config.
+    const BASE_IDENTITY_SCHEMA: &str = r#"{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.sunbeam.pt/base-identity.json",
+  "title": "Base Identity",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "traits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["email"],
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "title": "Email",
+          "maxLength": 320,
+          "ory.sh/kratos": {
+            "credentials": {
+              "password": { "identifier": true },
+              "webauthn": { "identifier": true },
+              "totp": { "account_name": true },
+              "code": { "identifier": true, "via": "email" },
+              "passkey": { "display_name": true }
+            },
+            "recovery": { "via": "email" },
+            "verification": { "via": "email" }
+          }
+        }
+      }
+    }
+  }
+}"#;
+
+    fn string_value(s: &str) -> Value {
+        Value {
+            kind: Some(Kind::StringValue(s.to_string())),
+            ..Default::default()
+        }
+    }
+
+    /// Fetch a service-app token. The app is provisioned with
+    /// `client_secret_post`, so credentials go in the form body.
+    async fn service_token(stack: &testing::KanbanHandle) -> String {
+        let resp: serde_json::Value = reqwest::Client::new()
+            .post(format!("{}/oauth2/token", stack.sso_gateway_endpoint()))
+            .form(&[
+                ("grant_type", "client_credentials"),
+                ("client_id", stack.client_id()),
+                ("client_secret", stack.client_secret()),
+                ("scope", "permission:admin tenant:admin identity:admin"),
+            ])
+            .send()
+            .await
+            .expect("token request should send")
+            .error_for_status()
+            .expect("token request should succeed")
+            .json()
+            .await
+            .expect("token response should be JSON");
+        resp["access_token"]
+            .as_str()
+            .expect("token response should carry access_token")
+            .to_owned()
+    }
+
+    // SDK-015: Assignee.email populated end-to-end — create a directory
+    // identity with an email, assign a card to them through the real server,
+    // and read the email back via GetCard.
+    #[tokio::test]
+    #[ignore = "requires Docker + pre-built kanban/sso-gateway images; pulls seven containers"]
+    async fn get_card_returns_assignee_email() {
+        let stack = testing::Kanban::new()
+            .with_tag(KANBAN_IMAGE_TAG)
+            .with_gateway_image(testing::SsoGateway::DEFAULT_IMAGE_NAME, GATEWAY_IMAGE_TAG)
+            .start()
+            .await
+            .expect("kanban stack should start");
+        let token = service_token(&stack).await;
+
+        // Directory identity carrying an email, inside the kanban-test tenant.
+        let email = "kanban-assignee@example.com";
+        let g2v = AuthClient::builder(stack.sso_gateway_endpoint())
+            .auth(BearerToken::new(token.clone()))
+            .build()
+            .expect("auth g2v client should build");
+        let auth = AuthClient::new(
+            g2v,
+            stack
+                .sso_gateway_endpoint()
+                .parse()
+                .expect("gateway endpoint should parse"),
+        )
+        .expect("auth client should build")
+        .with_tenant(stack.tenant_id());
+        // The kanban-test tenant starts with an empty schema registry; seed
+        // the base identity schema (the one baked into the harness's Kratos
+        // config) so CreateIdentity can reference it.
+        let schema_struct: Struct = serde_json::from_str(BASE_IDENTITY_SCHEMA)
+            .expect("base identity schema should parse into a protobuf Struct");
+        auth.identity()
+            .create_identity_schema(iam::CreateIdentitySchemaRequest {
+                schema_id: "default".to_owned(),
+                schema_json: MessageField::some(schema_struct),
+                ..Default::default()
+            })
+            .await
+            .expect("CreateIdentitySchema should succeed");
+        let traits = Struct {
+            fields: [("email".to_owned(), string_value(email))]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let identity_id = auth
+            .identity()
+            .create_identity(iam::CreateIdentityRequest {
+                schema_id: "default".to_owned(),
+                traits: MessageField::some(traits),
+                password: "Kanban-Test-Password-42".to_owned(),
+                ..Default::default()
+            })
+            .await
+            .expect("CreateIdentity should succeed")
+            .view()
+            .id
+            .to_string();
+
+        // Kanban client authenticated with the same service token.
+        let g2v = KanbanClient::builder(stack.endpoint())
+            .auth(BearerToken::new(token))
+            .build()
+            .expect("kanban g2v client should build");
+        let kanban = KanbanClient::new(
+            g2v,
+            stack.endpoint().parse().expect("endpoint should parse"),
+        )
+        .expect("kanban client should build");
+        let opts =
+            |object_id: &str| CallOptions::default().with_header("x-sunbeam-object-id", object_id);
+
+        let project = kanban
+            .projects()
+            .create_project(v1::CreateProjectRequest {
+                name: "Assignee Email Test".to_owned(),
+                prefix: "AET".to_owned(),
+                ..Default::default()
+            })
+            .await
+            .expect("CreateProject should succeed")
+            .into_owned()
+            .project
+            .into_option()
+            .expect("response should carry the project");
+
+        let board = kanban
+            .boards()
+            .create_board_with_options(
+                v1::CreateBoardRequest {
+                    project_id: project.id.clone(),
+                    name: "assignee-email".to_owned(),
+                    visibility: v1::BoardVisibility::Private.into(),
+                    ..Default::default()
+                },
+                opts(&project.id),
+            )
+            .await
+            .expect("CreateBoard should succeed")
+            .into_owned()
+            .board
+            .into_option()
+            .expect("response should carry the board");
+
+        let detail = kanban
+            .boards()
+            .get_board_with_options(
+                v1::GetBoardRequest {
+                    board_id: board.id.clone(),
+                    ..Default::default()
+                },
+                opts(&board.id),
+            )
+            .await
+            .expect("GetBoard should succeed")
+            .into_owned()
+            .detail
+            .into_option()
+            .expect("response should carry the board detail");
+        let column_id = match detail.columns.first() {
+            Some(column) => column.id.clone(),
+            None => {
+                kanban
+                    .boards()
+                    .add_column_with_options(
+                        v1::AddColumnRequest {
+                            board_id: board.id.clone(),
+                            title: "Todo".to_owned(),
+                            ..Default::default()
+                        },
+                        opts(&board.id),
+                    )
+                    .await
+                    .expect("AddColumn should succeed")
+                    .into_owned()
+                    .column
+                    .into_option()
+                    .expect("response should carry the column")
+                    .id
+            }
+        };
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock should be after the epoch")
+            .as_nanos();
+        let card = kanban
+            .cards()
+            .create_card_with_options(
+                v1::CreateCardRequest {
+                    board_id: board.id.clone(),
+                    column_id,
+                    title: "assign me".to_owned(),
+                    priority: v1::CardPriority::Medium.into(),
+                    idempotency_key: format!("sdk-015-{nonce}"),
+                    ..Default::default()
+                },
+                opts(&board.id),
+            )
+            .await
+            .expect("CreateCard should succeed")
+            .into_owned()
+            .card
+            .into_option()
+            .expect("response should carry the card");
+
+        // The server stores subjects as `user:<identity-id>`; the identity id
+        // alone is accepted too, so try the bare id first and fall back.
+        let subject = format!("user:{identity_id}");
+
+        // AssignCard denies assignees without board access: grant project
+        // membership (edit) first, mirroring how real clients assign.
+        kanban
+            .projects()
+            .add_member_with_options(
+                v1::AddMemberRequest {
+                    project_id: project.id.clone(),
+                    subject: subject.clone(),
+                    relation: "editor".to_owned(),
+                    ..Default::default()
+                },
+                opts(&project.id),
+            )
+            .await
+            .expect("AddMember should succeed");
+
+        // AssignCard checks "edit" on the KanbanCard object itself (server
+        // log: permission_dispatch namespace="KanbanCard"), and the canonical
+        // subject form is `user:<identity-id>`.
+        kanban
+            .cards()
+            .assign_card_with_options(
+                v1::AssignCardRequest {
+                    card_id: card.id.clone(),
+                    subject: subject.clone(),
+                    ..Default::default()
+                },
+                opts(&card.id),
+            )
+            .await
+            .expect("AssignCard should succeed");
+
+        let fetched = kanban
+            .cards()
+            .get_card_with_options(
+                v1::GetCardRequest {
+                    card_id: card.id.clone(),
+                    ..Default::default()
+                },
+                opts(&card.id),
+            )
+            .await
+            .expect("GetCard should succeed")
+            .into_owned()
+            .card
+            .into_option()
+            .expect("response should carry the card");
+
+        let assignee = fetched
+            .assignees
+            .iter()
+            .find(|a| a.subject == subject || a.subject == identity_id)
+            .expect("card should carry the assignee");
+        assert_eq!(assignee.email, email);
+
+        stack.shutdown().await;
     }
 }
