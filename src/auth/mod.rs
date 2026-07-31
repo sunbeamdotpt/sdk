@@ -150,6 +150,59 @@ impl AuthClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use buffa::MessageField;
+    use buffa_types::google::protobuf::BoolValue;
+
+    #[test]
+    fn test_application_carries_cross_tenant_and_skip_consent() {
+        // sso-gateway v2026.07.30 surface: `Application` and
+        // `CreateApplicationRequest` carry `cross_tenant` and `skip_consent`.
+        let app = v1::Application {
+            cross_tenant: true,
+            skip_consent: true,
+            ..Default::default()
+        };
+        assert!(app.cross_tenant);
+        assert!(app.skip_consent);
+
+        let create = v1::CreateApplicationRequest {
+            cross_tenant: true,
+            skip_consent: true,
+            ..Default::default()
+        };
+        assert!(create.cross_tenant);
+        assert!(create.skip_consent);
+    }
+
+    #[test]
+    fn test_update_application_partial_merge_wrappers() {
+        // Partial-merge semantics: `cross_tenant` and `skip_consent` are
+        // `google.protobuf.BoolValue` wrappers — an unset wrapper leaves the
+        // stored flag unchanged, a set wrapper toggles it.
+        let update = v1::UpdateApplicationRequest::default();
+        assert!(update.cross_tenant.is_unset());
+        assert!(update.skip_consent.is_unset());
+
+        let toggled = v1::UpdateApplicationRequest {
+            cross_tenant: MessageField::some(BoolValue {
+                value: true,
+                ..Default::default()
+            }),
+            skip_consent: MessageField::some(BoolValue {
+                value: false,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(
+            toggled.cross_tenant.as_option().map(|b| b.value),
+            Some(true)
+        );
+        assert_eq!(
+            toggled.skip_consent.as_option().map(|b| b.value),
+            Some(false)
+        );
+    }
 
     #[test]
     fn test_auth_client_builder_creates_g2v_builder() {

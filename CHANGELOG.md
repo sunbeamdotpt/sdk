@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.3.1
+
+Test coverage locking the sso-gateway v2026.07.30 application surface
+(SDK-011). No API changes: the generated stubs are rebuilt from
+`buf.build/sunbeamdotpt/sso-gateway` at build time and already carried these
+fields since v3.2.0 — this release proves and protects them.
+
+- test(auth): unit tests for `cross_tenant`/`skip_consent` on `Application`
+  and `CreateApplicationRequest`, and for the `BoolValue` partial-update
+  toggles (`cross_tenant`, `skip_consent`) on `UpdateApplicationRequest`
+- test(auth): `sso_gateway_application_crud` integration test now creates a
+  cross-tenant application, verifies the flag round-trips, and toggles it
+  off via the `BoolValue` wrapper
+
 ## v3.3.0
 
 Queued cli requests (agent-mail #39/#44/#33) plus a kanban client refresh.
