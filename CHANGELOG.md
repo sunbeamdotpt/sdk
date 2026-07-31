@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.3.2
+
+Assignee email coverage for the kanban client (SDK-012, SDK-015). No API
+changes: the generated stubs are rebuilt from `buf.build/sunbeamdotpt/kanban`
+at build time and now carry `Assignee.email` (upstream KANBAN-035) — this
+release proves the field end-to-end and hardens the `testing::Kanban`
+orchestrator's provisioning for identity-dependent tests.
+
+- test(kanban): unit tests for the `Assignee.email` field — serde roundtrip
+  and a wiremock `GetCard` decode through `KanbanClient`'s default
+  Connect/proto path
+- test(kanban): end-to-end assignee-email test against the real kanban
+  server (`v2026.07.12`): seeds an identity with an email, assigns a card,
+  and asserts `GetCard` returns the populated email
+- feat(testing): `testing::Kanban` provisions the service app with
+  `identity:admin` (test-side user provisioning) and `identity:read` (the
+  kanban server's identity client requests this scope when resolving
+  assignee profiles)
+
 ## v3.3.1
 
 Test coverage locking the sso-gateway v2026.07.30 application surface
