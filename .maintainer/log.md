@@ -197,3 +197,34 @@ string match, un-ignore device-poll test), SDK-001/002/003/010 descriptions
 stamped "Released in sdk v3.3.0", and cli notified on mail threads
 #39/#44/#33 (replies on open inbound threads, not new outbound tickets —
 the kanban rule covers ticket filing, not thread replies).
+
+## 2026-07-31 — SDK-011 verify-and-lock, v3.3.1 patch
+
+- **SDK-011 ("regenerate from v2026.07.30") was already satisfied.** Checked
+  BSR history instead of assuming staleness: commit `a322e5fe` (Jul 30, the
+  "v2026.07.30" push) is proto-identical to `183afee5` (Jul 24);
+  `cross_tenant` predates Jul 16; `skip_consent` + `UpdateApplication`
+  partial-merge landed Jul 24 — all present since v3.2.0's regen, and stubs
+  are build-time generated from BSR latest so there is nothing to commit.
+  Resolution: lock the surface with tests (unit: field presence + BoolValue
+  unset/set semantics; integration: cross_tenant create/get/toggle against
+  the real stack), close the card. *Why:* a "regenerate" ticket on a
+  build-time-codegen repo is really a "prove we're current" ticket.
+- **No BSR pinning.** Considered pinning build.rs to the sso-gateway commit
+  for reproducibility; declined — the org's model is floating-latest for
+  both modules, and pinning one changes the maintenance contract. Revisit
+  deliberately, not as a side effect.
+- **SDK-012 rehomed as KANBAN-035.** The Assignee.email gap is a kanban-repo
+  proto+server change (charter: proto sources of truth live there). Human
+  believed the defs were pushed; the v2026.07.31 push (`22f90346`) actually
+  carried `Column.is_done` and email-accepting `AssignCardRequest` — not the
+  field. Verified by exporting both commits and diffing. Did NOT set the
+  card's `--blocked` flag: the CLI warns it cannot be cleared server-side
+  yet; the `depends_on` link expresses the blockage safely.
+- **v3.3.1 pushed as a patch** on human's go-ahead; SDK-012 deferred rather
+  than holding the train. Unlike v3.3.0 (local tag), this push relies on the
+  workflows.yaml tag stage on mainline.
+- **Repo config repair:** `remote.origin.fetch` was
+  `+refs/heads/refactor/remove-sdk:...` (deleted branch) — every fetch
+  failed. Reset to the standard wildcard refspec. Suspect a past session
+  narrowed it for a one-off fetch.
