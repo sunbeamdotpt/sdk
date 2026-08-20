@@ -3,10 +3,10 @@ type: State
 title: Current state of sdk
 description: What is in flight, what is blocked, what the next session should pick up first.
 tags: [state]
-timestamp: 2026-07-31T00:00:00Z
+timestamp: 2026-08-20T00:00:00Z
 ---
 
-# State — 2026-07-31
+# State — 2026-08-20
 
 ## In flight
 
@@ -14,6 +14,9 @@ timestamp: 2026-07-31T00:00:00Z
   started then paused by the human mid-session; no repo changes made yet
   (surveyed only: ~520 `unwrap`/`expect`/`*_or_default` matches across 50
   files, most in `#[cfg(test)]`). Card has full config spec.
+- **v3.3.3 RELEASED** (2026-08-20, release commit `6b663833`, tag `v3.3.3`
+  to push) — new `testing::Nats` builder + configurable NATS image in
+  `testing::Kanban`. No API changes.
 - **v3.3.2 RELEASED** (2026-07-31, release commit `2c5aa642`, tag `v3.3.2`
   pushed) — SDK-012 unit tests + SDK-015 end-to-end coverage +
   `testing::Kanban` identity scopes. Cut so cli can pin it for its next
