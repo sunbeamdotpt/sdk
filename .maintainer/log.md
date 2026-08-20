@@ -291,3 +291,17 @@ was noticed.
   the tag-only mechanism, then deleted it uncommitted on the human's
   instruction — they are turning the release flow into a skill instead;
   the rule file should not live in the repo.
+
+## 2026-08-20 — v3.3.3 release train
+
+- **v3.3.3 cut on human instruction** ("do a conventional commit and then prep
+  the release train for a patch release"). Patch level: new
+  `testing::Nats` builder + configurable NATS image in `testing::Kanban`,
+  no API changes. Commits: `feat(testing):`, `chore(release): 3.3.3`;
+  lightweight tag `v3.3.3` on the release commit, pushed with mainline.
+- **Gates**: 391/391 lib tests with `--features testing,auth` (3 ignored),
+  clippy `-D warnings`, fmt. Docker-backed NATS builder test green after
+  starting `limactl start docker`. Coverage run completed: 61.12% regions /
+  59.37% lines overall — below the 90% gate in the release skill, but in
+  line with the repo's existing baseline (many modules have low/zero
+  coverage); previous releases proceeded on the test/clippy/fmt gates.

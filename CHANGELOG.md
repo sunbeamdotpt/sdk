@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.3.3
+
+NATS testcontainers builder, plus a configurable NATS image for the
+`testing::Kanban` orchestrator. No API changes to library consumers.
+
+- feat(testing): new `testing::Nats` builder — configurable image/tag,
+  JetStream toggle, network, container name, and published port
+- feat(testing): `testing::Kanban::with_nats_image` lets callers override the
+  NATS image used by the full-stack orchestrator; defaults moved to
+  `Nats::NAME` / `Nats::DEFAULT_TAG`
+
 ## v3.3.2
 
 Assignee email coverage for the kanban client (SDK-012, SDK-015). No API
