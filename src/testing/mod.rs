@@ -9,6 +9,7 @@
 //! * [`OpenFga`](openfga::OpenFga) – OpenFGA authorization / permission engine
 //! * [`Postgres`](postgres::Postgres) – PostgreSQL metadata store
 //! * [`SsoGateway`](sso_gateway::SsoGateway) – full sso-gateway stack (pre-built image + deps)
+//! * [`Nats`](nats::Nats) – messaging and JetStream
 //! * [`OpenBao`](openbao::OpenBao) – secrets management
 //! * [`OpenSearch`](opensearch::OpenSearch) – search & analytics
 //! * [`Stalwart`](stalwart::Stalwart) – mail server (JMAP/IMAP/SMTP)
@@ -34,6 +35,7 @@
 //! | [`SearXng`] | `searxng/searxng` | Binds on `0.0.0.0:8080` so it is reachable from the bridge network |
 //! | [`Headscale`] | `headscale/headscale` | Derived image with a baked-in `config.yaml` |
 //! | [`Tuwunel`] | `ghcr.io/matrix-construct/tuwunel` | Derived image with a baked-in `tuwunel.toml` |
+//! | [`Nats`] | `nats` | Messaging / JetStream; optional published port |
 //! | [`Postgres`] | `postgres` | `ory/ory/ory` credentials; optional published port |
 //! | [`SsoGateway`] | `ghcr.io/sunbeamdotpt/sso-gateway` | Full stack (Postgres + Hydra + Kratos + a permission backend + gateway image) on a private network; exposes a single endpoint. Permission backend is OpenFGA by default; switch with `with_permissions_backend` |
 //! | [`Kanban`] | `ghcr.io/sunbeamdotpt/kanban` | Full stack (Postgres + NATS + OpenSearch + MinIO + an [`SsoGateway`] stack + kanban image) on a private network; provisions the `kanban-test` tenant and service credentials via IAM. Requires the `auth` feature |
@@ -118,6 +120,8 @@ pub mod kratos;
 pub mod livekit;
 /// Loki — log aggregation container builder (stock single-binary config).
 pub mod loki;
+/// NATS — messaging and JetStream container builder.
+pub mod nats;
 /// OpenBao — dev-mode secrets container builder.
 pub mod openbao;
 /// OpenFGA — ReBAC permission server container builder.
@@ -150,6 +154,7 @@ pub use keto::Keto;
 pub use kratos::Kratos;
 pub use livekit::LiveKit;
 pub use loki::Loki;
+pub use nats::Nats;
 pub use openbao::OpenBao;
 pub use openfga::OpenFga;
 pub use opensearch::OpenSearch;

@@ -23,14 +23,12 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use testcontainers::{
-    ContainerAsync, GenericImage, ImageExt,
-    core::{ContainerPort, WaitFor},
-    runners::AsyncRunner,
+    ContainerAsync, GenericImage, ImageExt, core::ContainerPort, runners::AsyncRunner,
 };
 use tokio::time::{Instant, sleep};
 
 use crate::auth::{AuthClient, v1};
-use crate::testing::{OpenSearch, Postgres, SsoGateway, SsoGatewayHandle, util};
+use crate::testing::{Nats, OpenSearch, Postgres, SsoGateway, SsoGatewayHandle, util};
 
 /// Error type used by the provisioning and bucket-creation helpers.
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -66,6 +64,7 @@ pub struct Kanban {
     image_name: String,
     image_tag: String,
     postgres_tag: String,
+    nats_image_name: String,
     nats_tag: String,
     opensearch_tag: String,
     minio_tag: String,
@@ -84,7 +83,7 @@ impl Kanban {
     pub const PORT: u16 = 8080;
 
     /// NATS client port inside its container.
-    pub const NATS_PORT: u16 = 4222;
+    pub const NATS_PORT: u16 = Nats::PORT;
     /// MinIO S3 API port inside its container.
     pub const MINIO_PORT: u16 = 9000;
 
@@ -116,6 +115,12 @@ impl Kanban {
     /// Override the Postgres image tag.
     pub fn with_postgres_tag(mut self, tag: impl Into<String>) -> Self {
         self.postgres_tag = tag.into();
+        self
+    }
+
+    /// Override the NATS image name.
+    pub fn with_nats_image(mut self, name: impl Into<String>) -> Self {
+        self.nats_image_name = name.into();
         self
     }
 
@@ -164,14 +169,11 @@ impl Kanban {
             .start()
             .await?;
 
-        // nats-server logs its readiness line on stderr, not stdout.
-        let nats = GenericImage::new("nats", &self.nats_tag)
-            .with_exposed_port(ContainerPort::Tcp(Self::NATS_PORT))
-            .with_wait_for(WaitFor::message_on_stderr("Server is ready"))
-            .with_cmd(vec!["-js"])
+        let nats = Nats::new()
+            .with_image(&self.nats_image_name)
+            .with_tag(&self.nats_tag)
             .with_network(&network)
             .with_container_name(&nats_name)
-            .with_startup_timeout(Duration::from_secs(120))
             .start()
             .await?;
 
@@ -303,7 +305,8 @@ impl Default for Kanban {
             image_name: Self::DEFAULT_IMAGE_NAME.to_owned(),
             image_tag: Self::DEFAULT_IMAGE_TAG.to_owned(),
             postgres_tag: Postgres::DEFAULT_TAG.to_owned(),
-            nats_tag: "2.10-alpine".to_owned(),
+            nats_image_name: Nats::NAME.to_owned(),
+            nats_tag: Nats::DEFAULT_TAG.to_owned(),
             opensearch_tag: OpenSearch::DEFAULT_TAG.to_owned(),
             minio_tag: "RELEASE.2025-02-28T09-55-16Z".to_owned(),
             gateway_image_name: SsoGateway::DEFAULT_IMAGE_NAME.to_owned(),
