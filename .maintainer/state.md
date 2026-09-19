@@ -10,23 +10,35 @@ timestamp: 2026-08-20T00:00:00Z
 
 ## In flight
 
-- **SDK-014 (clippy panic/default ban, SSO-027 instance)** — in progress,
-  started then paused by the human mid-session; no repo changes made yet
-  (surveyed only: ~520 `unwrap`/`expect`/`*_or_default` matches across 50
-  files, most in `#[cfg(test)]`). Card has full config spec.
-- **v3.3.3 RELEASED** (2026-08-20, release commit `6b663833`, tag `v3.3.3`
-  to push) — new `testing::Nats` builder + configurable NATS image in
-  `testing::Kanban`. No API changes.
-- **v3.3.2 RELEASED** (2026-07-31, release commit `2c5aa642`, tag `v3.3.2`
-  pushed) — SDK-012 unit tests + SDK-015 end-to-end coverage +
-  `testing::Kanban` identity scopes. Cut so cli can pin it for its next
-  cut.
-- **v3.3.1 RELEASED** (mainline push 2026-07-31, release commit `8f5ea4fd`;
-  tag `v3.3.1` pushed locally — the CI tag stage does not fire on push, the
-  tag-only flow is the real mechanism; see log). Patch: SDK-011 test
-  coverage only, no API changes.
-- Worktree clean; SDK-014 (clippy ban) paused by the human, no repo changes
-  made for it.
+- **v3.4.0 RELEASED (2026-09-19)** — three bodies of work, all gates green:
+  1. **TLS crypto backends unified on aws-lc-sys** — kube 4.0
+     `default-features = false` + `aws-lc-rs` (its default selects ring),
+     tonic `tls-aws-lc` (tonic TLS is providerless), testcontainers
+     `default-features = false` + `["blocking", "aws-lc-rs"]`. ring remains
+     only transitively (wfe -> kube 3.1/sqlx, boringtun in sunbeam-net) —
+     WFE-003 filed on wfe's board for the mirror flips.
+  2. **g2v vendored into the sdk** (the session's headline): sunbeam-g2v
+     0.6.2 (upstream's final release, repo deprecated) absorbed as
+     `src/g2v/` with `g2v-client` (implied by search/matrix/media/
+     monitoring; in `full`) and `g2v-server` (opt-in, NOT in `full`)
+     features, plus granular `g2v-*` passthroughs. sdk is now a 2-crate
+     workspace (g2v-derive). Circular g2v<->sdk dev-dep dissolved. g2v's 15
+     integration tests + example ported; typescript/ TS client moved here
+     and committed.
+  3. **SDK-014 closed** — SSO-027 panic/default ban enforced via
+     workspace lints + clippy.toml; ~35 production violations fixed with
+     explicit handling + logging; generated stubs exempt at include sites.
+     `tests/g2v_support` carries the pattern from g2v upstream.
+- **Remote-daemon testing**: `testing::init_docker_host` +
+  `testing::util::build_image` (bollard classic builder, stream drained)
+  make container tests work against remote TLS Docker contexts. Suite ran
+  500/500 (3 skipped) against `alpha-0`; all suite images pre-pulled there
+  with the human's authenticated CLI after Docker Hub 429s. Registry auth
+  was NOT installed on alpha-0's account (keychain needs interactive
+  approval) — the human has the one-liner if they want it.
+- **Container-test gotcha**: rustls panics in test processes when both
+  provider features are unified and nothing installs a default — the init
+  helper handles it; don't remove that call from container tests.
 
 ## Done this cycle
 

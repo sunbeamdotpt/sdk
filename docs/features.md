@@ -28,13 +28,17 @@ The bare core (no features) compiles only `error`, `config`, `constants`,
 
 | Feature | Modules | Pulls in |
 |---------|---------|----------|
-| `auth` | `auth` | connectrpc, buffa, g2v ConnectRPC transport, codegen at build time |
+| `auth` | `auth` | connectrpc, buffa, the vendored g2v ConnectRPC transport (`g2v-client-connectrpc`), codegen at build time |
 | `kanban` | `kanban` | connectrpc, buffa, codegen at build time |
 | `wfectl` | `wfectl` | tonic, prost, wfe crates |
-| `search` | `search` | g2v client stack |
-| `matrix` | `matrix` | g2v client stack |
-| `media` | `media` | g2v client stack |
-| `monitoring` | `monitoring` | g2v client stack |
+| `search` | `search` | implies `g2v-client` |
+| `matrix` | `matrix` | implies `g2v-client` |
+| `media` | `media` | implies `g2v-client` |
+| `monitoring` | `monitoring` | implies `g2v-client` |
+| `g2v-client` | `g2v::client` | vendored Sunbeam client stack (reqwest, tower, lru); implied by the REST clients |
+| `g2v-server` | `g2v::service`, `g2v::server`, `g2v::middleware`, `g2v::health`, `g2v::metrics`, `g2v::telemetry`, `g2v::config` | vendored axum service runtime (opt-in; NOT part of `full`) |
+| `g2v` | both stacks | `g2v-client` + `g2v-server` |
+| `g2v-nats` / `g2v-sqlx` / `g2v-redis` / `g2v-vault` / `g2v-election` / `g2v-standalone` / `g2v-client-connectrpc` | respective `g2v` submodules | imply `g2v-server` (or `g2v-client` for the ConnectRPC transport); sqlx is pinned to `tls-rustls-aws-lc-rs` |
 | `build` | `build` | — (wraps the host `buildctl` binary) |
 | `kube` | `kube`, `manifests`, `manifest_params`, `profiles` | kube-rs, k8s-openapi |
 | `openbao` | `openbao` | vaultrs |
@@ -54,7 +58,8 @@ them through the SDK instead:
 
 - `sdk::reqwest`, `sdk::kube_rs`, `sdk::k8s_openapi`
 - `sdk::kanban::prelude` — re-exports `connectrpc`, `buffa`, `buffa-types`,
-  `sunbeam_g2v`, `KanbanClient`, and the generated `v1` surface
+  the vendored `sdk::g2v` client stack, `KanbanClient`, and the generated
+  `v1` surface
 
 ## Interactions to know
 
@@ -78,6 +83,9 @@ Some deps are held back by internal constraints, not neglect:
 
 | Dependency | Pinned at | Reason |
 |---|---|---|
-| `connectrpc`, `buffa` | 0.7 | `sunbeam-g2v` 0.5.2 pairs with connectrpc 0.7; 0.8 breaks `ConnectTransport` interop |
+| `connectrpc`, `buffa` | 0.7 | the vendored g2v and the generated stubs pair with connectrpc 0.7; 0.8 breaks `ConnectTransport` interop |
+| `sunbeam-g2v` (external) | removed in v3.4.0 | the framework is vendored under `src/g2v/`; the upstream repo is deprecated at 0.6.2 |
+| `sqlx` (g2v) / `sqlx` (wfe) | 0.9 / 0.8 | vendored g2v uses sqlx 0.9; wfe-sqlite still pins 0.8 — both majors coexist in the graph |
 | `bollard` | 0.20 | `testcontainers` 0.27.3 requires it |
+| `kube` / `tonic` TLS features | `aws-lc-rs` / `tls-aws-lc` | one TLS crypto backend (aws-lc-sys); kube's defaults select `ring`, tonic's TLS is providerless — see the TLS policy note in `Cargo.toml` |
 | RustCrypto crates (`aes-gcm`, `hmac`, `sha2`, `rand`) | 0.10 / 0.12 / 0.10 / 0.8 | the ecosystem moves in lockstep; partial upgrades break trait interop |

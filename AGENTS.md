@@ -48,8 +48,13 @@ user to install it.
 
 ```
 .
-├── Cargo.toml              # Single-package manifest (name = "sdk")
-├── build.rs                # Embeds lima-sunbeam.yaml, sets git commit + build metadata
+├── Cargo.toml              # Workspace root + package manifest (name = "sdk")
+├── g2v-derive/             # Proc-macro crate (Instrumented) for the vendored g2v
+├── typescript/             # @sunbeam/g2v TypeScript client (moved from the g2v repo)
+├── tests/                  # Integration tests (Docker-backed, feature-gated)
+├── examples/               # Vendored g2v service example
+├── clippy.toml             # Fleet-wide panic/default ban (SSO-027 / SDK-014)
+├── build.rs                # Embeds lima-sunbeam.yaml, ConnectRPC codegen, sets build metadata
 ├── src/
 │   ├── lib.rs              # Module declarations, #![warn(missing_docs)]
 │   ├── error.rs            # SunbeamError, Result, ResultExt, bail! macro
@@ -63,6 +68,9 @@ user to install it.
 │   ├── manifest_params.rs  # Runtime parameter discovery (--set) and override application
 │   ├── manifests.rs        # Kustomize build + domain substitution + namespace filtering + apply
 │   ├── matrix/             # Matrix Client-Server API client (g2v-based)
+│   ├── g2v/                # Vendored Sunbeam Service Framework (from g2v 0.6.2):
+│   │                       #   client stack (feature `g2v-client`) + axum server,
+│   │                       #   middleware, metrics, telemetry (`g2v-server`)
 │   ├── media/              # LiveKit Twirp API client + JWT access tokens (g2v-based)
 │   ├── monitoring/         # Prometheus, Loki, Grafana API clients (g2v-based)
 │   ├── openbao.rs          # OpenBao HTTP client
@@ -154,6 +162,13 @@ sdk = { version = "3", default-features = false, features = ["search", "media"] 
 
 The `testing::Kanban` stack orchestrator additionally requires the `auth`
 feature (it provisions service credentials via the sso-gateway IAM client).
+
+Vendored g2v features (v3.4.0+): `g2v-client` (implied by
+search/matrix/media/monitoring), `g2v-server` (opt-in service runtime, NOT
+in `full`), `g2v` (both), plus granular `g2v-nats`, `g2v-sqlx`,
+`g2v-redis`, `g2v-vault`, `g2v-election`, `g2v-standalone`,
+`g2v-client-connectrpc`. Upstream `sunbeamdotpt/g2v` is deprecated at
+0.6.2.
 
 Public-API dependency crates are re-exported so consumers avoid version
 skew: `sdk::reqwest`, `sdk::kube_rs`, `sdk::k8s_openapi`, and
