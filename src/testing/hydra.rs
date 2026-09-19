@@ -150,6 +150,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn hydra_is_healthy() {
+        crate::testing::init_docker_host();
         let container = Hydra::default()
             .publish_ports()
             .start()

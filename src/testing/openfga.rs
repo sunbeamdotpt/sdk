@@ -133,6 +133,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn openfga_is_healthy() {
+        crate::testing::init_docker_host();
         let container = OpenFga::default()
             .publish_ports()
             .start()

@@ -4,20 +4,14 @@ use bollard::{Docker, query_parameters::InspectContainerOptions};
 use flate2::{Compression, write::GzEncoder};
 use testcontainers::{ContainerAsync, GenericImage, core::ContainerPort};
 
-fn docker_socket() -> String {
-    std::env::var("DOCKER_HOST")
-        .ok()
-        .and_then(|h| h.strip_prefix("unix://").map(|s| s.to_string()))
-        .unwrap_or_else(|| "/var/run/docker.sock".to_string())
-}
-
 /// Build a small Docker image from an in-memory Dockerfile and extra context files.
 ///
 /// `files` is a list of `(path_in_context, bytes)`.
 ///
-/// This uses `curl` directly against the Docker socket because the BuildKit path in
-/// bollard/testcontainers produces a context that socktainer cannot see. `curl` with a
-/// classic (`version=1`) build works reliably.
+/// Uses bollard's classic (`version=1`) builder explicitly: the BuildKit path in
+/// bollard/testcontainers produces a context that socktainer cannot see, while
+/// the classic endpoint also works against remote TLS daemons (unlike the
+/// previous curl-over-unix-socket approach, which required a local socket).
 pub async fn build_image(
     descriptor: &str,
     dockerfile: &str,
@@ -41,47 +35,30 @@ pub async fn build_image(
     encoder.write_all(&tar_bytes)?;
     let gz_bytes = encoder.finish()?;
 
-    let socket = docker_socket();
-    let tar_path = format!(
-        "/tmp/sunbeam-test-build-{}.tar",
-        descriptor.replace(['/', ':'], "_")
+    let docker = Docker::connect_with_defaults()?;
+    let options = bollard::query_parameters::BuildImageOptionsBuilder::default()
+        .t(descriptor)
+        .dockerfile("Dockerfile")
+        .version(bollard::query_parameters::BuilderVersion::BuilderV1)
+        .build();
+
+    let mut stream = docker.build_image(
+        options,
+        None,
+        Some(bollard::body_stream(futures::stream::once(async move {
+            bytes::Bytes::from(gz_bytes)
+        }))),
     );
-    std::fs::write(&tar_path, &gz_bytes)?;
 
-    let output = std::process::Command::new("curl")
-        .arg("-s")
-        .arg("--unix-socket")
-        .arg(&socket)
-        .arg("-X")
-        .arg("POST")
-        .arg(format!(
-            "http://localhost/build?t={descriptor}&dockerfile=Dockerfile&version=1"
-        ))
-        .arg("-H")
-        .arg("Content-Type: application/x-tar")
-        .arg("--data-binary")
-        .arg(format!("@{tar_path}"))
-        .output()?;
-
-    let _ = std::fs::remove_file(&tar_path);
-
-    if !output.status.success() {
-        return Err(format!(
-            "curl build failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .into());
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    for line in stdout.lines() {
-        if let Ok(value) = serde_json::from_str::<serde_json::Value>(line)
-            && (value.get("error").is_some() || value.get("errorDetail").is_some())
-        {
-            return Err(format!("Docker build error: {line}").into());
+    use futures::StreamExt;
+    // The build stream must be drained to completion — dropping it early
+    // cancels the build server-side and leaves the image unbuilt.
+    while let Some(ev) = stream.next().await {
+        let ev = ev?;
+        if let Some(detail) = ev.error_detail.and_then(|d| d.message) {
+            return Err(format!("Docker build error: {detail}").into());
         }
     }
-
     Ok(())
 }
 

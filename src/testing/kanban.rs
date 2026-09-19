@@ -47,7 +47,10 @@ const MINIO_ROOT_PASSWORD: &str = "minioadmin";
 fn unique_prefix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
+        .unwrap_or_else(|e| {
+            tracing::warn!(msg = "clock before UNIX epoch; nanos default to zero", error = %e);
+            std::time::Duration::ZERO
+        })
         .as_nanos();
     format!("kb{nanos:x}")
 }
@@ -405,7 +408,7 @@ async fn fetch_bootstrap_token(
 /// Build an IAM admin client authenticated with a bootstrap token.
 fn admin_client(gateway_url: &str, token: String) -> Result<AuthClient, BoxError> {
     let g2v = AuthClient::builder(gateway_url)
-        .auth(sunbeam_g2v::client::BearerToken::new(token))
+        .auth(crate::g2v::client::BearerToken::new(token))
         .build()?;
     let base_uri = gateway_url
         .parse()
@@ -418,7 +421,7 @@ fn admin_client(gateway_url: &str, token: String) -> Result<AuthClient, BoxError
 /// `(tenant_id, client_id, client_secret)`.
 ///
 /// Mirrors the kanban repo's own test harness: the application uses
-/// `client_secret_post` so that `sunbeam_g2v::client::OAuth2ClientCredentials`
+/// `client_secret_post` so that `crate::g2v::client::OAuth2ClientCredentials`
 /// can fetch tokens with form-encoded credentials, and `cross_tenant: true`
 /// so the server can act on behalf of other tenants via `x-tenant-id`.
 async fn provision_service_app(
@@ -573,7 +576,10 @@ async fn create_s3_bucket(
         Ok(())
     } else {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "<body unavailable>".to_string());
         Err(format!("create bucket {bucket} failed: {status} {body}").into())
     }
 }
@@ -627,6 +633,7 @@ mod image_tests {
     #[tokio::test]
     #[ignore = "requires pre-built kanban + sso-gateway images and pulls five containers"]
     async fn kanban_stack_exposes_ready_endpoint() {
+        crate::testing::init_docker_host();
         let stack = Kanban::new()
             .start()
             .await

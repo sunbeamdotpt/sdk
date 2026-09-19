@@ -84,6 +84,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn prometheus_is_healthy() {
+        crate::testing::init_docker_host();
         let container = Prometheus::default()
             .publish_ports()
             .start()

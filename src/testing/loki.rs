@@ -84,6 +84,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn loki_is_healthy() {
+        crate::testing::init_docker_host();
         let container = Loki::default()
             .publish_ports()
             .start()

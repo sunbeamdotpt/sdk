@@ -130,6 +130,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn opensearch_is_healthy() {
+        crate::testing::init_docker_host();
         let container = OpenSearch::default()
             .publish_ports()
             .start()

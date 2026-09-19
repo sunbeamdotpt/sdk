@@ -102,6 +102,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn grafana_is_healthy() {
+        crate::testing::init_docker_host();
         let container = Grafana::default()
             .publish_ports()
             .start()

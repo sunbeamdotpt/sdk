@@ -81,7 +81,10 @@ const SYSTEM_TENANT_ULID: &str = "01HZY9JTKKHK3Y6XJJYHZ9Q5TV";
 fn unique_prefix() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
+        .unwrap_or_else(|e| {
+            tracing::warn!(msg = "clock before UNIX epoch; nanos default to zero", error = %e);
+            std::time::Duration::ZERO
+        })
         .as_nanos();
     format!("sso{nanos:x}")
 }
@@ -480,6 +483,7 @@ mod image_tests {
 
     #[test]
     fn kratos_config_enables_recovery_with_default_courier() {
+        crate::testing::init_docker_host();
         let config = super::kratos_config(None);
         assert!(config.contains("recovery:"), "recovery flow missing");
         assert!(

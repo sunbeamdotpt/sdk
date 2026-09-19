@@ -106,6 +106,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn openbao_is_healthy() {
+        crate::testing::init_docker_host();
         let container = OpenBao::default()
             .publish_ports()
             .start()

@@ -166,3 +166,88 @@ pub use sso_gateway::{PermissionBackend, SsoGateway, SsoGatewayHandle};
 pub use stalwart::Stalwart;
 pub use tuwunel::Tuwunel;
 pub use util::{container_bridge_ip, container_host_url};
+
+/// Pin `aws-lc-rs` as the process-wide rustls crypto provider (test support).
+///
+/// Dev builds can unify *both* rustls provider features — ring enters the
+/// graph via wfe (kube 3.1, sqlx) while every edge this crate controls
+/// selects aws-lc-rs — and rustls refuses to auto-select a provider when
+/// both are present. Installing the default explicitly keeps TLS connections
+/// (remote Docker daemons, TLS-secured services) deterministic. Best-effort:
+/// if a provider is already installed, that one stays.
+#[cfg(test)]
+pub fn install_default_crypto_provider() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        if rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .is_err()
+        {
+            eprintln!("rustls crypto provider already installed; keeping existing default");
+        }
+    });
+}
+
+/// Prepare the container-test environment before any container starts.
+///
+/// Ensures `DOCKER_HOST` points at the active Docker context when it is not
+/// already set (testcontainers reads `DOCKER_HOST` directly; the Docker CLI's
+/// context-aware endpoint is not picked up on its own). For TLS-secured
+/// remote daemons the context's CA/cert/key material is mirrored into
+/// `DOCKER_CERT_PATH` / `DOCKER_TLS_VERIFY` and the endpoint rewritten to
+/// `https://`. Also pins the rustls crypto provider (see
+/// [`install_default_crypto_provider`]).
+#[cfg(test)]
+pub fn init_docker_host() {
+    install_default_crypto_provider();
+
+    if std::env::var("DOCKER_HOST").is_ok() {
+        return;
+    }
+
+    let output = std::process::Command::new("docker")
+        .args([
+            "context",
+            "inspect",
+            "-f",
+            "{{.Endpoints.docker.Host}}\n{{.Storage.TLSPath}}",
+        ])
+        .output();
+
+    let (mut host, tls_dir) = match output {
+        Ok(out) if out.status.success() => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+            // Missing lines mean an unusual context shape; the emptiness
+            // handling below falls back to the default socket.
+            let host = lines.next().unwrap_or("").to_string();
+            let tls = lines.next().unwrap_or("").to_string();
+            (host, tls)
+        }
+        _ => (String::new(), String::new()),
+    };
+
+    if host.is_empty() {
+        // Fall back to the default unix socket. If Docker isn't there,
+        // testcontainers fails with a clear connection error.
+        // SAFETY: single-threaded test-process init; env vars are read later
+        // by testcontainers when the first container starts.
+        unsafe { std::env::set_var("DOCKER_HOST", "unix:///var/run/docker.sock") };
+        return;
+    }
+
+    let ca = std::path::Path::new(&tls_dir).join("docker").join("ca.pem");
+    if host.starts_with("tcp://") && ca.exists() {
+        if std::env::var_os("DOCKER_CERT_PATH").is_none() {
+            // SAFETY: same single-threaded test-init window as above.
+            unsafe {
+                std::env::set_var("DOCKER_CERT_PATH", ca.parent().unwrap());
+                std::env::set_var("DOCKER_TLS_VERIFY", "1");
+            }
+        }
+        host = host.replacen("tcp://", "https://", 1);
+    }
+
+    // SAFETY: same single-threaded test-init window as above.
+    unsafe { std::env::set_var("DOCKER_HOST", host) };
+}

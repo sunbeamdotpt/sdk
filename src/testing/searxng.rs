@@ -94,6 +94,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn searxng_is_healthy() {
+        crate::testing::init_docker_host();
         let container = SearXng::default()
             .publish_ports()
             .start()

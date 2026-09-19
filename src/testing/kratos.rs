@@ -34,7 +34,10 @@ selfservice:
 fn unique_tag() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
+        .unwrap_or_else(|e| {
+            tracing::warn!(msg = "clock before UNIX epoch; nanos default to zero", error = %e);
+            std::time::Duration::ZERO
+        })
         .as_nanos();
     format!("{nanos:x}")
 }
@@ -193,6 +196,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn kratos_is_healthy() {
+        crate::testing::init_docker_host();
         let container = Kratos::default()
             .publish_ports()
             .start()

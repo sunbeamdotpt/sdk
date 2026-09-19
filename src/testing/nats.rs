@@ -135,6 +135,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn nats_publishes_port_and_becomes_ready() {
+        crate::testing::init_docker_host();
         let container = Nats::default()
             .publish_port()
             .start()

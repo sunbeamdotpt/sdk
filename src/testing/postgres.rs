@@ -141,6 +141,7 @@ mod image_tests {
 
     #[tokio::test]
     async fn postgres_publishes_port_and_accepts_connections() {
+        crate::testing::init_docker_host();
         let container = Postgres::default()
             .publish_port()
             .start()
