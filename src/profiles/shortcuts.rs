@@ -361,7 +361,10 @@ fn expand_env_named(
     Ok(vec![Override::Set {
         resource: addr.into(),
         field_path: "spec/template/spec/containers/0/env".into(),
-        value: serde_json::to_string(&vec![entry]).unwrap_or_default(),
+        value: serde_json::to_string(&vec![entry]).unwrap_or_else(|e| {
+            tracing::warn!(msg = "annotation serialization failed; using empty value", error = %e);
+            String::new()
+        }),
     }])
 }
 
@@ -488,7 +491,10 @@ fn expand_container_env_named(
     Ok(vec![Override::Set {
         resource: addr.into(),
         field_path: format!("spec/template/spec/containers/{idx}/env"),
-        value: serde_json::to_string(&vec![entry]).unwrap_or_default(),
+        value: serde_json::to_string(&vec![entry]).unwrap_or_else(|e| {
+            tracing::warn!(msg = "annotation serialization failed; using empty value", error = %e);
+            String::new()
+        }),
     }])
 }
 
@@ -563,7 +569,10 @@ fn expand_config_key(
     Ok(vec![Override::Set {
         resource: addr.into(),
         field_path: field_path.to_string(),
-        value: serde_json::to_string(&Value::Object(merged)).unwrap_or_default(),
+        value: serde_json::to_string(&Value::Object(merged)).unwrap_or_else(|e| {
+            tracing::warn!(msg = "annotation serialization failed; using empty value", error = %e);
+            String::new()
+        }),
     }])
 }
 
@@ -598,7 +607,10 @@ fn json_to_string(value: &Value) -> String {
         Value::Bool(b) => b.to_string(),
         Value::Number(n) => n.to_string(),
         Value::Null => "null".to_string(),
-        _ => serde_json::to_string(value).unwrap_or_default(),
+        _ => serde_json::to_string(value).unwrap_or_else(|e| {
+            tracing::warn!(msg = "annotation serialization failed; using empty value", error = %e);
+            String::new()
+        }),
     }
 }
 

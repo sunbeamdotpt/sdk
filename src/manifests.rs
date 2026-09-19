@@ -316,7 +316,13 @@ async fn pre_apply_cleanup(logger: &crate::logger::Logger, namespaces: Option<&[
                 Ok(client) => {
                     let reg = crate::registry::discover(logger, &client).await;
                     reg.map(|r| r.namespaces().into_iter().map(|s| s.to_string()).collect())
-                        .unwrap_or_default()
+                        .unwrap_or_else(|e| {
+                            tracing::warn!(
+                                msg = "namespace discovery failed; continuing empty",
+                                error = %e
+                            );
+                            Vec::new()
+                        })
                 }
                 Err(_) => Vec::new(),
             };
@@ -432,7 +438,13 @@ async fn snapshot_configmaps(
     let reg = crate::registry::discover(logger, &client).await;
     let namespaces: Vec<String> = reg
         .map(|r| r.namespaces().into_iter().map(|s| s.to_string()).collect())
-        .unwrap_or_default();
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                msg = "namespace discovery failed; continuing empty",
+                error = %e
+            );
+            Vec::new()
+        });
 
     for ns in &namespaces {
         let cms: kube::api::Api<k8s_openapi::api::core::v1::ConfigMap> =
@@ -673,7 +685,13 @@ pub async fn inject_opensearch_model_id(logger: &crate::logger::Logger) {
         "data": {"model_id": &model_id},
     });
 
-    let manifest = serde_json::to_string(&cm).unwrap_or_default();
+    let manifest = serde_json::to_string(&cm).unwrap_or_else(|e| {
+        tracing::warn!(msg = "ConfigMap serialization failed; skipping model_id injection", error = %e);
+        String::new()
+    });
+    if manifest.is_empty() {
+        return;
+    }
     if let Err(e) = crate::kube::kube_apply(logger, &manifest).await {
         info!(logger, "Failed to inject OpenSearch model_id", error = e);
     } else {
@@ -746,7 +764,10 @@ pub async fn ensure_opensearch_ml() {
         .and_then(|h| h.get("hits"))
         .and_then(|h| h.as_array())
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            tracing::debug!(msg = "model registration response missing hits; treating as empty");
+            Vec::new()
+        });
 
     // Categorise all matching models by state.
     let mut deployed_ids: Vec<String> = Vec::new();
@@ -887,7 +908,10 @@ pub async fn ensure_opensearch_ml() {
         let task_id = serde_json::from_str::<serde_json::Value>(&reg_resp)
             .ok()
             .and_then(|v| v.get("task_id")?.as_str().map(String::from))
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                tracing::debug!(msg = "no task_id in registration response");
+                String::new()
+            });
 
         if task_id.is_empty() {
             tracing::info!("No task_id from model registration -- skipping.");

@@ -72,9 +72,14 @@ impl BuildKitClient {
         }
 
         // Try to extract digest from output
+        // No digest in buildctl output is a legitimate outcome; keep the
+        // empty-string contract for BuildOutput but log it.
         let digest = extract_digest(&stdout)
             .or_else(|| extract_digest(&stderr))
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                tracing::debug!(msg = "no image digest found in buildctl output");
+                String::new()
+            });
 
         Ok(BuildOutput {
             digest,

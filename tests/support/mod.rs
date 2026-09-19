@@ -1,3 +1,6 @@
+// Integration-test crate: tests may unwrap/expect freely (SDK-014 carve-out).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Shared integration-test support code.
 //!
 //! Orchestration of external services is delegated to the SDK's `testing`

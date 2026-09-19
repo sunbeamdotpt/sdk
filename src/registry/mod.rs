@@ -384,10 +384,12 @@ where
         let ns = meta.namespace.as_deref().unwrap_or("default");
         let resource_name = meta.name.as_deref().unwrap_or("");
 
+        // A missing service label yields an empty name, which the emptiness
+        // check below skips deliberately.
         let service_name = labels
             .and_then(|l| l.get(LABEL_SERVICE))
             .cloned()
-            .unwrap_or_default();
+            .unwrap_or_else(String::new);
 
         if service_name.is_empty() {
             continue;
@@ -434,7 +436,10 @@ where
                     .filter(|d| !d.is_empty())
                     .collect()
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                tracing::debug!(msg = "no dependency annotations; empty dependency list");
+                Vec::new()
+            });
 
         let health = match ann(ANN_HEALTH_CHECK).as_deref() {
             Some("none") | None if is_virtual => HealthCheck::None,
@@ -457,7 +462,10 @@ where
                     .filter_map(|p| p.trim().parse::<u16>().ok())
                     .collect()
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                tracing::debug!(msg = "no port annotations; empty port list");
+                Vec::new()
+            });
 
         debug!(
             logger,

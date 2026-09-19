@@ -1,3 +1,6 @@
+// Integration-test crate: tests may unwrap/expect freely (SDK-014 carve-out).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! End-to-end integration tests for the sso-gateway [`AuthClient`].
 //!
 //! These tests boot the real sso-gateway reference stack in Docker via
@@ -94,7 +97,7 @@ async fn auth_client(endpoint: &str) -> AuthClient {
 fn unique_suffix() -> String {
     let ts = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
+        .unwrap_or(std::time::Duration::ZERO)
         .as_millis();
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{ts}-{n}")

@@ -123,7 +123,10 @@ pub async fn discover_manifests(base_dir: &std::path::Path) -> Result<Vec<Manife
                 .and_then(|v| v.as_str())
                 .map(tunables::parse_tunable_annotation)
                 .transpose()?
-                .unwrap_or_default();
+                .unwrap_or_else(|| {
+                    tracing::debug!(msg = "no tunable annotation on resource; using defaults");
+                    Default::default()
+                });
 
             resources.push(ManifestResource {
                 kind: kind.to_string(),

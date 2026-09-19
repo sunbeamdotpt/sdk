@@ -288,10 +288,15 @@ mod tests {
         use tracing::field::Visit;
         let mut visitor = event_fmt::FieldVisitor::new();
         // Create a span with a message field so we can grab its metadata.
-        let span = tracing::info_span!("test", message = tracing::field::Empty);
-        let meta = span.metadata().unwrap();
-        let field = meta.fields().field("message").unwrap();
-        visitor.record_debug(&field, &"hello");
+        // A subscriber must be active for the span to carry metadata (nextest
+        // runs each test in its own process with no global subscriber).
+        let subscriber = tracing_subscriber::fmt().finish();
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!("test", message = tracing::field::Empty);
+            let meta = span.metadata().unwrap();
+            let field = meta.fields().field("message").unwrap();
+            visitor.record_debug(&field, &"hello");
+        });
         assert_eq!(visitor.message, "\"hello\"");
     }
 
@@ -299,10 +304,13 @@ mod tests {
     fn event_fmt_visitor_collects_other_fields() {
         use tracing::field::Visit;
         let mut visitor = event_fmt::FieldVisitor::new();
-        let span = tracing::info_span!("test", count = tracing::field::Empty);
-        let meta = span.metadata().unwrap();
-        let field = meta.fields().field("count").unwrap();
-        visitor.record_debug(&field, &42);
+        let subscriber = tracing_subscriber::fmt().finish();
+        tracing::subscriber::with_default(subscriber, || {
+            let span = tracing::info_span!("test", count = tracing::field::Empty);
+            let meta = span.metadata().unwrap();
+            let field = meta.fields().field("count").unwrap();
+            visitor.record_debug(&field, &42);
+        });
         assert_eq!(
             visitor.fields,
             vec![("count".to_string(), "42".to_string())]

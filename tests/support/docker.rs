@@ -1,3 +1,6 @@
+// Integration-test crate: tests may unwrap/expect freely (SDK-014 carve-out).
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 //! Docker environment detection for integration tests.
 //!
 //! Testcontainers reads `DOCKER_HOST` directly; on macOS the Docker socket is

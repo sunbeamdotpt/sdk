@@ -143,7 +143,12 @@ fn job_spec_hash(doc_json: &serde_json::Value) -> String {
         .get("spec")
         .cloned()
         .unwrap_or(serde_json::Value::Null);
-    let canonical = serde_json::to_string(&spec).unwrap_or_default();
+    // Serialization of a serde_json::Value cannot fail in practice; on the
+    // defensive path, log and hash the empty canonical form.
+    let canonical = serde_json::to_string(&spec).unwrap_or_else(|e| {
+        tracing::warn!(msg = "job spec serialization failed; hashing empty form", error = %e);
+        String::new()
+    });
     let digest = Sha256::digest(canonical.as_bytes());
     format!("{digest:x}")
 }
@@ -176,9 +181,17 @@ pub async fn kube_apply(logger: &crate::logger::Logger, manifest: &str) -> Resul
     // Broken APIServices (e.g. stale webhook registrations) cause 503s during
     // discovery. We query APIServices first and exclude unavailable groups so
     // discovery doesn't fail on them.
+    // Discovery failures here must not fail the whole client build; log and
+    // continue with no exclusions.
     let broken_groups = discover_broken_api_groups(&client)
         .await
-        .unwrap_or_default();
+        .unwrap_or_else(|e| {
+            tracing::warn!(
+                msg = "broken API group discovery failed; continuing without exclusions",
+                error = %e
+            );
+            Vec::new()
+        });
     if !broken_groups.is_empty() {
         info!(
             logger,
@@ -489,7 +502,11 @@ async fn apply_one_doc(
             .get("spec")
             .cloned()
             .unwrap_or(serde_json::Value::Null);
-        let canonical = serde_json::to_string(&spec_json).unwrap_or_default();
+        // Same defensive serialization path as job_spec_hash.
+        let canonical = serde_json::to_string(&spec_json).unwrap_or_else(|e| {
+            tracing::warn!(msg = "spec serialization failed; hashing empty form", error = %e);
+            String::new()
+        });
         let hash = format!("{:x}", sha2::Sha256::digest(canonical.as_bytes()));
 
         let annotations = patch
@@ -1001,10 +1018,14 @@ pub async fn kustomize_build(overlay: &Path, domain: &str, email: &str) -> Resul
     let helm_path = crate::tools::ensure_helm()?;
 
     // Ensure helm's parent dir is on PATH so kustomize can find it
+    // A path without a parent falls back to no extra PATH entry.
     let helm_dir = helm_path
         .parent()
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            tracing::debug!(msg = "helm path has no parent directory");
+            String::new()
+        });
 
     let mut env_path = helm_dir.clone();
     if let Ok(existing) = std::env::var("PATH") {

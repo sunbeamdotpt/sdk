@@ -197,7 +197,8 @@ impl BaoClient {
     pub async fn kv_get_field(&self, mount: &str, path: &str, field: &str) -> Result<String> {
         tracing::debug!("kv_get_field {mount}/{path} field={field}");
         match self.kv_get(mount, path).await? {
-            Some(data) => Ok(data.get(field).cloned().unwrap_or_default()),
+            // A missing field resolves to the empty string by contract.
+            Some(data) => Ok(data.get(field).cloned().unwrap_or_else(String::new)),
             None => Ok(String::new()),
         }
     }
@@ -247,7 +248,10 @@ impl BaoClient {
         let resp = req.send().await.ctx("Failed to patch KV secret")?;
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "<body unavailable>".to_string());
             bail!("KV patch {mount}/{path} returned {status}: {body}");
         }
         Ok(())
@@ -326,11 +330,17 @@ impl BaoClient {
         }
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "<body unavailable>".to_string());
             bail!("Read {path} returned {status}: {body}");
         }
 
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "<body unavailable>".to_string());
         if body.is_empty() {
             Ok(None)
         } else {
@@ -365,11 +375,17 @@ impl BaoClient {
         }
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "<body unavailable>".to_string());
             bail!("List {path} returned {status}: {body}");
         }
 
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "<body unavailable>".to_string());
         if body.is_empty() {
             Ok(None)
         } else {
@@ -397,11 +413,17 @@ impl BaoClient {
             .with_ctx(|| format!("Failed to write to {path}"))?;
         if !resp.status().is_success() {
             let status = resp.status();
-            let body = resp.text().await.unwrap_or_default();
+            let body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "<body unavailable>".to_string());
             bail!("Write {path} returned {status}: {body}");
         }
 
-        let body = resp.text().await.unwrap_or_default();
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "<body unavailable>".to_string());
         if body.is_empty() {
             Ok(serde_json::Value::Null)
         } else {
@@ -520,6 +542,7 @@ mod container_tests {
 
     #[tokio::test]
     async fn openbao_kv_roundtrip() {
+        crate::testing::init_docker_host();
         let (_container, client) = boot().await;
 
         let status = client.seal_status().await.expect("seal status");
