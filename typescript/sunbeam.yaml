@@ -1,0 +1,19 @@
+schema: 1
+project:
+  name: sunbeam-g2v-fe
+  description: Sunbeam Service Framework (frontend) — ConnectRPC + TanStack + legend-state + OTel
+  kind: lib
+  language: typescript
+  package_manager: npm
+
+targets:
+  build:
+    exec: npm run build
+  test:
+    exec: deno task test
+  lint:
+    exec: deno task lint
+  fmt:
+    exec: npx prettier --write src
+  clean:
+    exec: rm -rf dist node_modules

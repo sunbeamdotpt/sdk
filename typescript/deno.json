@@ -1,0 +1,66 @@
+{
+  "name": "@sunbeam/g2v",
+  "version": "0.3.0",
+  "license": "MIT",
+  "repository": "https://github.com/sunbeamdotpt/sunbeam",
+  "exports": {
+    ".": "./src/index.ts",
+    "./core": "./src/core/index.ts",
+    "./interceptors": "./src/interceptors/index.ts",
+    "./state": "./src/state/index.ts",
+    "./otel": "./src/otel/index.ts",
+    "./providers": "./src/providers/index.ts",
+    "./hooks": "./src/hooks/index.ts",
+    "./testing": "./src/testing/index.ts",
+    "./router": "./src/router/index.ts",
+    "./rest": "./src/rest/index.ts"
+  },
+  "imports": {
+    "react": "npm:react@^19.0.0",
+    "react/jsx-runtime": "npm:react@^19.0.0/jsx-runtime",
+    "react-dom": "npm:react-dom@^19.0.0",
+    "@types/react": "npm:@types/react@^19.0.0",
+    "@bufbuild/protobuf": "npm:@bufbuild/protobuf@^2.2.0",
+    "@connectrpc/connect": "npm:@connectrpc/connect@^2.0.0",
+    "@connectrpc/connect-web": "npm:@connectrpc/connect-web@^2.0.0",
+    "@legendapp/state": "npm:@legendapp/state@^3.0.0-beta",
+    "@legendapp/state/react": "npm:@legendapp/state@^3.0.0-beta/react",
+    "@opentelemetry/api": "npm:@opentelemetry/api@^1.9.0",
+    "@opentelemetry/context-zone": "npm:@opentelemetry/context-zone@^1.30.0",
+    "@opentelemetry/exporter-trace-otlp-http": "npm:@opentelemetry/exporter-trace-otlp-http@^0.57.0",
+    "@opentelemetry/instrumentation": "npm:@opentelemetry/instrumentation@^0.57.0",
+    "@opentelemetry/instrumentation-fetch": "npm:@opentelemetry/instrumentation-fetch@^0.57.0",
+    "@opentelemetry/instrumentation-user-interaction": "npm:@opentelemetry/instrumentation-user-interaction@^0.45.0",
+    "@opentelemetry/instrumentation-xml-http-request": "npm:@opentelemetry/instrumentation-xml-http-request@^0.57.0",
+    "@opentelemetry/resources": "npm:@opentelemetry/resources@^1.30.0",
+    "@opentelemetry/sdk-trace-web": "npm:@opentelemetry/sdk-trace-web@^1.30.0",
+    "@opentelemetry/semantic-conventions": "npm:@opentelemetry/semantic-conventions@^1.28.0",
+    "@tanstack/react-query": "npm:@tanstack/react-query@^5.59.0",
+    "@tanstack/react-router": "npm:@tanstack/react-router@^1.0.0",
+    "@std/testing": "jsr:@std/testing@^1.0.0",
+    "@std/expect": "jsr:@std/expect@^1.0.0"
+  },
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "jsxImportSourceTypes": "@types/react"
+  },
+  "tasks": {
+    "test": "deno test --allow-env --location http://localhost src/",
+    "lint": "deno lint src/",
+    "check": "deno check src/index.ts"
+  },
+  "publish": {
+    "include": [
+      "src/**",
+      "deno.json",
+      "README.md"
+    ],
+    "exclude": [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx"
+    ]
+  }
+}
