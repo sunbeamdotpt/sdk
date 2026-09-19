@@ -2,20 +2,27 @@
 //!
 //! The entire sso-gateway surface area is generated from
 //! `buf.build/sunbeamdotpt/sso-gateway` and exposed under [`iam::v1`].
-//! [`AuthClient`] wraps a [`sunbeam_g2v::client::Client`] to provide ready-to-use
+//! [`AuthClient`] wraps a [`crate::g2v::client::Client`] to provide ready-to-use
 //! service clients speaking ConnectRPC.
 
 #![allow(missing_docs)]
 
-connectrpc::include_generated!("sso-gateway/_connectrpc.rs");
+// Generated stubs are tool output (connectrpc-build / buffa view codegen
+// emits `unwrap_or_default` internally); exempt from the fleet-wide
+// *_or_default ban, which targets hand-written code.
+#[allow(clippy::disallowed_methods)]
+mod generated {
+    connectrpc::include_generated!("sso-gateway/_connectrpc.rs");
+}
+pub use generated::*;
 
 pub use crate::auth::iam::v1;
 
-use connectrpc::client::ClientConfig;
-use std::sync::Arc;
-use sunbeam_g2v::client::{
+use crate::g2v::client::{
     Client as G2vClient, ClientBuilder, ClientBuilderError, ConnectTransport,
 };
+use connectrpc::client::ClientConfig;
+use std::sync::Arc;
 
 /// Header carrying the tenant id on sso-gateway requests.
 pub const TENANT_ID_HEADER: &str = "x-tenant-id";

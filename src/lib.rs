@@ -2,8 +2,7 @@
 #![deny(unused_mut)]
 #![deny(clippy::missing_safety_doc)]
 #![deny(clippy::undocumented_unsafe_blocks)]
-#![cfg_attr(not(test), deny(clippy::expect_used))]
-#![cfg_attr(not(test), deny(clippy::unwrap_used))]
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 // just keeps syntax consistent
 #![deny(clippy::needless_borrow)]
 //! sdk — SDK for Sunbeam remote services, authentication, secrets, VPN, and
@@ -26,6 +25,9 @@ pub mod build;
 pub mod config;
 /// Shared constants (paths, ports, timeouts).
 pub mod constants;
+/// Sunbeam Service Framework — vendored g2v client and server stacks.
+#[cfg(any(feature = "g2v-client", feature = "g2v-server"))]
+pub mod g2v;
 /// Kubernetes client setup and manifest operations.
 #[cfg(feature = "kube")]
 pub mod kube;

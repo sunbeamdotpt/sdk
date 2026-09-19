@@ -6,7 +6,12 @@ use std::process::Command;
 fn main() {
     let out_dir =
         PathBuf::from(env::var("OUT_DIR").unwrap_or_else(|e| panic!("OUT_DIR not set: {e}")));
-    let target = env::var("TARGET").unwrap_or_default();
+    let target = env::var("TARGET").unwrap_or_else(|e| {
+        // Cargo always sets TARGET for build scripts; an empty fallback keeps
+        // metadata generation alive while surfacing the anomaly loudly.
+        eprintln!("cargo:warning=TARGET not set: {e}");
+        String::new()
+    });
     let manifest_dir = PathBuf::from(
         env::var("CARGO_MANIFEST_DIR")
             .unwrap_or_else(|e| panic!("CARGO_MANIFEST_DIR not set: {e}")),
@@ -41,6 +46,23 @@ fn main() {
             "buf.build/sunbeamdotpt/kanban",
             &["sunbeam/kanban/v1"],
             Some(&local_proto_dir),
+        );
+    }
+
+    // Vendored g2v framework: compile the eliza example/test proto
+    // (connectrpc-build directly; no BSR round-trip — it is a fixture).
+    if env::var("CARGO_FEATURE_G2V_SERVER").is_ok() {
+        connectrpc_build::Config::new()
+            .files(&["proto/connectrpc/eliza/v1/eliza.proto"])
+            .includes(&["proto"])
+            .include_file("_eliza.rs")
+            .compile()
+            .unwrap_or_else(|e| panic!("failed to compile eliza protos: {e}"));
+        println!(
+            "cargo:rerun-if-changed={}",
+            manifest_dir
+                .join("proto/connectrpc/eliza/v1/eliza.proto")
+                .display()
         );
     }
 
@@ -108,7 +130,16 @@ fn generate_connectrpc_module(
         let entries = fs::read_dir(&path)
             .unwrap_or_else(|e| panic!("failed to read proto directory {}: {e}", path.display()));
         for entry in entries {
-            let entry = entry.unwrap();
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    eprintln!(
+                        "cargo:warning=skipping unreadable proto dir entry in {}: {e}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
             let p = entry.path();
             if p.extension().and_then(|s| s.to_str()) == Some("proto") {
                 files.push(p);

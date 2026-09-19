@@ -1,6 +1,6 @@
 //! OpenSearch — search and analytics API client.
 //!
-//! Build a shared [`sunbeam_g2v::client::Client`] (e.g. with
+//! Build a shared [`crate::g2v::client::Client`] (e.g. with
 //! `ClientBuilder::new(url).auth(BearerToken::new(token))`) and pass it to
 //! [`OpenSearchClient::new`], or use [`OpenSearchClient::connect`] for an
 //! unauthenticated client derived from the active domain.
@@ -8,10 +8,10 @@
 #[allow(missing_docs)]
 pub mod types;
 
+use crate::g2v::client::{Client, ClientBuilder, RestClient};
 use http::Method;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sunbeam_g2v::client::{Client, ClientBuilder, RestClient};
 use types::*;
 
 use crate::error::{Result, SunbeamError};
@@ -487,7 +487,7 @@ impl OpenSearchClient {
         if let Some(b) = body {
             req = req
                 .header(http::header::CONTENT_TYPE, "application/json")?
-                .json(b);
+                .json(b)?;
         }
         let resp = req.send().await?;
         let status = resp.status();
@@ -505,7 +505,7 @@ impl OpenSearchClient {
         if let Some(b) = body {
             req = req
                 .header(http::header::CONTENT_TYPE, "application/json")?
-                .json(b);
+                .json(b)?;
         }
         let resp = req.send().await?;
         let status = resp.status();
@@ -563,8 +563,8 @@ mod tests {
 mod container_tests {
     use std::time::Duration;
 
+    use crate::g2v::client::ClientBuilder;
     use serde_json::json;
-    use sunbeam_g2v::client::ClientBuilder;
 
     use super::OpenSearchClient;
     use crate::testing::OpenSearch;
@@ -599,6 +599,7 @@ mod container_tests {
 
     #[tokio::test]
     async fn opensearch_doc_lifecycle() {
+        crate::testing::init_docker_host();
         let (_container, client) = boot().await;
 
         client

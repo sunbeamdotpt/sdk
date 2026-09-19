@@ -6,9 +6,33 @@ license = "MIT"
 repository = "https://github.com/sunbeamdotpt/sdk"
 description = "Sunbeam Studios SDK"
 
+[workspace]
+members = ["g2v-derive"]
+
+# Fleet-wide panic/default ban (SSO-027; SDK-014). `priority = -1` so inline
+# `#[allow]` cannot silently override; per-instance allows with a justification
+# comment remain possible. Tests are exempt via `cfg_attr(test, allow(...))`
+# in the lib root.
+[workspace.lints.clippy]
+unwrap_used = { level = "deny", priority = -1 }
+expect_used = { level = "deny", priority = -1 }
+disallowed_methods = { level = "deny", priority = -1 }
+# This style lint would suggest exactly the banned *_or_default methods.
+manual_unwrap_or_default = { level = "allow", priority = -1 }
+
+[workspace.lints.rust]
+# Allow refining_impl_trait for connectrpc handlers (vendored g2v).
+refining_impl_trait_internal = "allow"
+refining_impl_trait_reachable = "allow"
+
+[lints]
+workspace = true
+
 [features]
 default = ["full"]
-# Everything: backwards-compatible with pre-feature consumers.
+# Everything: backwards-compatible with pre-feature consumers. Includes
+# g2v-client (the REST clients) but deliberately NOT g2v-server — service
+# hosting opts in explicitly so default builds don't pay for axum/otel.
 full = [
     "auth",
     "kanban",
@@ -23,6 +47,7 @@ full = [
     "secrets",
     "vault-keystore",
     "vpn",
+    "g2v-client",
 ]
 # sso-gateway IAM client (ConnectRPC, generated stubs).
 auth = [
@@ -30,7 +55,7 @@ auth = [
     "dep:buffa",
     "dep:buffa-types",
     "dep:http-body",
-    "sunbeam-g2v/client-connectrpc",
+    "g2v-client-connectrpc",
 ]
 # Kanban project management client (ConnectRPC, generated stubs).
 kanban = [
@@ -38,7 +63,7 @@ kanban = [
     "dep:buffa",
     "dep:buffa-types",
     "dep:http-body",
-    "sunbeam-g2v/client-connectrpc",
+    "g2v-client-connectrpc",
 ]
 # Remote workflow engine gRPC client.
 wfectl = [
@@ -54,16 +79,18 @@ wfectl = [
     "dep:wfe-server-protos",
 ]
 # OpenSearch HTTP API client.
-search = ["dep:sunbeam-g2v"]
+search = ["g2v-client"]
 # Matrix Client-Server API client.
-matrix = ["dep:sunbeam-g2v"]
+matrix = ["g2v-client"]
 # LiveKit Twirp API client + JWT access tokens.
-media = ["dep:sunbeam-g2v"]
+media = ["g2v-client"]
 # Prometheus, Loki, and Grafana API clients.
-monitoring = ["dep:sunbeam-g2v"]
+monitoring = ["g2v-client"]
 # BuildKit container image build client (host buildctl wrapper).
 build = []
 # Kubernetes client setup and manifest operations.
+# default-features = false: kube's `default` selects the `ring` crypto
+# provider; pick `aws-lc-rs` instead (TLS policy, HTTP / TLS section above).
 kube = ["dep:kube", "dep:k8s-openapi"]
 # OpenBao (HashiCorp Vault fork) API client.
 openbao = ["dep:vaultrs"]
@@ -79,22 +106,87 @@ lettre = ["dep:lettre"]
 # Testcontainers builders for Sunbeam services.
 testing = ["dep:testcontainers", "dep:bollard"]
 
+# Sunbeam Service Framework, vendored from sunbeamdotpt/g2v v0.6.2 (that
+# repo is deprecated in favor of these features). Client and server stacks
+# are independently selectable.
+g2v = ["g2v-client", "g2v-server"]
+# Outbound HTTP client stack (ClientBuilder/Client/RestClient, OAuth2
+# tokens, retry, circuit breaker). Implied by search/matrix/media/monitoring.
+g2v-client = ["dep:tower", "dep:tower-http", "dep:uuid", "dep:anyhow", "g2v-cache"]
+# LRU response cache (client request cache; the server response-cache
+# middleware additionally requires g2v-server).
+g2v-cache = ["dep:lru", "dep:gxhash", "dep:http-body-util", "dep:tower"]
+# ConnectRPC transport for the client stack.
+g2v-client-connectrpc = [
+    "g2v-client",
+    "dep:connectrpc",
+    "dep:buffa",
+    "dep:buffa-types",
+    "connectrpc/client",
+    "connectrpc/tls",
+    "connectrpc/gzip",
+    "connectrpc/zstd",
+]
+# axum service runtime: router, middleware (incl. session auth), health,
+# metrics, telemetry, figment config.
+g2v-server = [
+    "dep:axum",
+    "dep:tower",
+    "dep:tower-http",
+    "dep:figment",
+    "dep:prometheus",
+    "dep:metrics",
+    "dep:metrics-exporter-prometheus",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+    "dep:dashmap",
+    "dep:hex",
+    "dep:ulid",
+    "dep:hkdf",
+    "dep:subtle",
+    "dep:http-body",
+    "dep:anyhow",
+    "dep:uuid",
+    "dep:connectrpc",
+    "dep:buffa",
+    "dep:buffa-types",
+    "dep:sunbeam-g2v-derive",
+    "connectrpc/server",
+    "connectrpc/gzip",
+    "connectrpc/zstd",
+    "connectrpc/streaming",
+    "connectrpc/axum",
+    "connectrpc/tls",
+]
+# NATS messaging (mq module + leader election transport).
+g2v-nats = ["g2v-server", "dep:async-nats", "dep:url"]
+# Postgres via sqlx (runtime-tokio, TLS pinned to aws-lc-rs).
+g2v-sqlx = ["g2v-server", "dep:sqlx", "sqlx/postgres", "dep:aes-gcm"]
+# Redis client.
+g2v-redis = ["g2v-server", "dep:redis"]
+# Vault/OpenBao integration (shares the vaultrs dep with `openbao`).
+g2v-vault = ["g2v-server", "dep:vaultrs"]
+# Leader election over NATS + Vault.
+g2v-election = ["g2v-vault", "g2v-nats"]
+# Standalone hyper server (no axum re-exports on the wire).
+g2v-standalone = ["g2v-server", "dep:hyper", "dep:hyper-util"]
+
 [dependencies]
 # Internal
 sunbeam-net = { git = "https://github.com/sunbeamdotpt/vpn", optional = true }
 
-# Sunbeam service framework — client stack for remote services.
-# g2v 0.5.2's feature graph requires auth+tracing+logging even for
-# client-only builds (its audit middleware references them unconditionally).
-sunbeam-g2v = { version = "0.5.2", default-features = false, features = ["client", "auth", "tracing", "logging"], optional = true }
-
 # ConnectRPC runtime and generated stubs runtime.
-# Pinned to 0.7/0.7: sunbeam-g2v 0.5.2 (latest) depends on connectrpc 0.7 —
-# 0.8 + buffa 0.8 introduce a second connectrpc in the graph and break the
-# ConnectTransport interop used by AuthClient.
+# Pinned to 0.7/0.7: g2v (vendored) and the generated stubs pair with
+# connectrpc 0.7 — 0.8 + buffa 0.8 break the ConnectTransport interop used
+# by AuthClient.
 connectrpc = { version = "0.7", features = ["client"], optional = true }
 buffa = { version = "0.7", features = ["json"], optional = true }
 buffa-types = { version = "0.7", features = ["json"], optional = true }
+
+# Sunbeam Service Framework derive (Instrumented) — vendored, path dep.
+sunbeam-g2v-derive = { path = "g2v-derive", optional = true }
 
 # Core
 thiserror = "2"
@@ -115,11 +207,19 @@ serde_json = "1.0"
 serde_yaml = "0.9"
 
 # Kubernetes
-kube = { version = "4.0", features = ["runtime", "client", "ws"], optional = true }
+# default-features = false: kube's `default` selects the `ring` crypto
+# provider; pick `aws-lc-rs` instead (TLS policy, HTTP / TLS section above).
+kube = { version = "4.0", default-features = false, features = ["client", "runtime", "ws", "rustls-tls", "aws-lc-rs"], optional = true }
 k8s-openapi = { version = "0.28", features = ["latest"], optional = true }
 
 # HTTP / TLS
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "blocking"] }
+# TLS policy: one stack (rustls) with the aws-lc-sys crypto backend wherever
+# this crate controls the choice. reqwest's `rustls` feature is aws-lc-rs
+# backed; kube and tonic select their provider explicitly below. ring still
+# enters the graph transitively (wfe -> kube 3.1 defaults, sqlx via
+# wfe-sqlite, boringtun via sunbeam-net) and is tolerated, never chosen.
+# `form` is for the g2v OAuth2 token endpoints (vendored client stack).
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "blocking", "form"] }
 bytes = "1.0"
 http = "1"
 http-body = { version = "1", optional = true }
@@ -131,9 +231,60 @@ pkcs1 = { version = "0.7", optional = true }
 sha2 = "0.10"
 hmac = "0.12"
 base64 = "0.22"
-rand = "0.8"
+# 0.10: unified with the vendored g2v framework (0.8 is EOL upstream).
+rand = { version = "0.10", features = ["thread_rng"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
 aes-gcm = { version = "0.10", optional = true }
 argon2 = { version = "0.5", optional = true }
+
+# Vendored g2v framework — server stack
+axum = { version = "0.8", features = ["http2", "macros"], optional = true }
+tower = { version = "0.5", features = ["full"], optional = true }
+tower-http = { version = "0.7", features = ["trace", "timeout", "catch-panic", "cors"], optional = true }
+hyper = { version = "1", features = ["full"], optional = true }
+hyper-util = { version = "0.1", features = ["full"], optional = true }
+figment = { version = "0.10", features = ["env", "toml", "json"], optional = true }
+prometheus = { version = "0.14", optional = true }
+metrics = { version = "0.24", optional = true }
+metrics-exporter-prometheus = { version = "0.18", optional = true }
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "trace"], optional = true }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["trace", "http-proto", "reqwest-blocking-client"], optional = true }
+tracing-opentelemetry = { version = "0.33", optional = true }
+dashmap = { version = "6", optional = true }
+hex = { version = "0.4", optional = true }
+ulid = { version = "1", optional = true }
+hkdf = { version = "0.12", optional = true }
+subtle = { version = "2.5", optional = true }
+uuid = { version = "1", features = ["v4", "serde"], optional = true }
+
+# Vendored g2v framework — server integrations
+# The bare `tls-rustls` alias selects the ring provider; pin aws-lc-rs.
+sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls-aws-lc-rs"], optional = true }
+# Mirrors async-nats defaults minus the `ring` feature, plus `aws-lc-rs`,
+# so NATS TLS uses the same single crypto provider as the rest of the stack.
+async-nats = { version = "0.49", default-features = false, features = [
+    "server_2_10",
+    "server_2_11",
+    "server_2_12",
+    "server_2_14",
+    "service",
+    "aws-lc-rs",
+    "jetstream",
+    "nkeys",
+    "crypto",
+    "object-store",
+    "kv",
+    "websockets",
+    "nuid",
+], optional = true }
+url = { version = "2", optional = true }
+redis = { version = "1.2", optional = true }
+
+# Vendored g2v framework — client cache
+lru = { version = "0.18", optional = true }
+gxhash = { version = "3.5", optional = true }
+http-body-util = { version = "0.1", optional = true }
 
 # Archive handling
 flate2 = "1"
@@ -161,13 +312,18 @@ wfe-core = { version = "1.10.0", features = ["test-support"], optional = true }
 wfe-sqlite = { version = "1.10.0", optional = true }
 wfe-yaml = { version = "1.10.0", features = ["rustlang", "buildkit", "containerd", "kubernetes"], optional = true }
 wfe-server-protos = { version = "1.10.0", optional = true }
-tonic = { version = "0.14", features = ["tls-native-roots"], optional = true }
+# tls-aws-lc selects the crypto provider explicitly: tonic's TLS is
+# providerless, and without this the provider is whatever feature-unification
+# happens to turn on elsewhere in the graph.
+tonic = { version = "0.14", features = ["tls-aws-lc", "tls-native-roots"], optional = true }
 tonic-prost = { version = "0.14", optional = true }
 prost-types = { version = "0.14", optional = true }
 prost = { version = "0.14", optional = true }
 
 # Testcontainers (testing feature)
-testcontainers = { version = "0.27.3", features = ["blocking"], optional = true }
+# default-features = false: the default TLS flavor is ring-backed; aws-lc-rs
+# keeps the dev graph on the single crypto provider.
+testcontainers = { version = "0.27.3", default-features = false, features = ["blocking", "aws-lc-rs"], optional = true }
 bollard = { version = "0.20", optional = true }
 
 [dev-dependencies]
@@ -175,7 +331,14 @@ wiremock = "0.6"
 mockall = "0.15"
 async-trait = "0.1"
 rustls = { version = "0.23", features = ["aws-lc-rs"] }
+tokio-test = "0.4"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 connectrpc-build = "0.7"
+
+# Vendored g2v end-to-end service example.
+[[example]]
+name = "simple"
+path = "examples/simple/main.rs"
+required-features = ["g2v-server", "g2v-client", "g2v-client-connectrpc"]

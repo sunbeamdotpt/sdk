@@ -1,6 +1,6 @@
 //! LiveKit — real-time media API client (Twirp).
 //!
-//! Build a shared [`sunbeam_g2v::client::Client`] (e.g. with
+//! Build a shared [`crate::g2v::client::Client`] (e.g. with
 //! `ClientBuilder::new(url).auth(BearerToken::new(token))`) and pass it to
 //! [`LiveKitClient::new`], or use [`LiveKitClient::connect`] for an
 //! unauthenticated client derived from the active domain.
@@ -8,8 +8,8 @@
 #[allow(missing_docs)]
 pub mod types;
 
+use crate::g2v::client::{Client, ClientBuilder, RestClient};
 use base64::Engine;
-use sunbeam_g2v::client::{Client, ClientBuilder, RestClient};
 use types::*;
 
 use crate::error::{Result, SunbeamError};
@@ -215,7 +215,7 @@ impl LiveKitClient {
             .rest()
             .post(&format!("twirp/{method}"))?
             .header(http::header::CONTENT_TYPE, "application/json")?
-            .json(body)
+            .json(body)?
             .send()
             .await?;
         let status = resp.status();
@@ -235,7 +235,7 @@ impl LiveKitClient {
             .rest()
             .post(&format!("twirp/{method}"))?
             .header(http::header::CONTENT_TYPE, "application/json")?
-            .json(body)
+            .json(body)?
             .send()
             .await?;
         let status = resp.status();
@@ -350,8 +350,8 @@ mod tests {
 mod container_tests {
     use std::time::Duration;
 
+    use crate::g2v::client::{BearerToken, ClientBuilder};
     use serde_json::json;
-    use sunbeam_g2v::client::{BearerToken, ClientBuilder};
 
     use super::{LiveKitClient, types::VideoGrants};
     use crate::testing::LiveKit;
@@ -402,6 +402,7 @@ mod container_tests {
 
     #[tokio::test]
     async fn livekit_room_lifecycle() {
+        crate::testing::init_docker_host();
         let (_container, client) = boot().await;
 
         let room = client

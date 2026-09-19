@@ -1,6 +1,6 @@
 //! Matrix — chat and collaboration API client (Client-Server API).
 //!
-//! Build a shared [`sunbeam_g2v::client::Client`] (e.g. with
+//! Build a shared [`crate::g2v::client::Client`] (e.g. with
 //! `ClientBuilder::new(url).auth(BearerToken::new(access_token))`) and pass it
 //! to [`MatrixClient::new`], or use [`MatrixClient::connect`] for an
 //! unauthenticated client derived from the active domain.
@@ -8,10 +8,10 @@
 #[allow(missing_docs)]
 pub mod types;
 
+use crate::g2v::client::{Client, ClientBuilder, RestClient};
 use http::Method;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use sunbeam_g2v::client::{Client, ClientBuilder, RestClient};
 use types::*;
 
 use crate::error::{Result, SunbeamError};
@@ -1144,7 +1144,7 @@ impl MatrixClient {
         if let Some(b) = body {
             req = req
                 .header(http::header::CONTENT_TYPE, "application/json")?
-                .json(b);
+                .json(b)?;
         }
         let resp = req.send().await?;
         let status = resp.status();
@@ -1171,7 +1171,7 @@ impl MatrixClient {
         if let Some(b) = body {
             req = req
                 .header(http::header::CONTENT_TYPE, "application/json")?
-                .json(b);
+                .json(b)?;
         }
         let resp = req.send().await?;
         let status = resp.status();
@@ -1228,8 +1228,8 @@ mod tests {
 mod container_tests {
     use std::time::Duration;
 
+    use crate::g2v::client::{BearerToken, ClientBuilder};
     use serde_json::json;
-    use sunbeam_g2v::client::{BearerToken, ClientBuilder};
 
     use super::MatrixClient;
     use super::types::CreateRoomRequest;
@@ -1319,13 +1319,17 @@ mod container_tests {
             "{:x}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
+                .unwrap_or_else(|e| {
+                    tracing::warn!(msg = "clock before UNIX epoch; nanos default to zero", error = %e);
+                    std::time::Duration::ZERO
+                })
                 .as_nanos()
         )
     }
 
     #[tokio::test]
     async fn matrix_room_and_message_lifecycle() {
+        crate::testing::init_docker_host();
         let (_container, client) = boot().await;
 
         let whoami = client.whoami().await.expect("whoami");

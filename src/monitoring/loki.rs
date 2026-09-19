@@ -1,12 +1,12 @@
 //! Loki — log aggregation API client (`/loki/api/v1`).
 //!
-//! Build a shared [`sunbeam_g2v::client::Client`] and pass it to
+//! Build a shared [`crate::g2v::client::Client`] and pass it to
 //! [`LokiClient::new`], or use [`LokiClient::connect`] for an unauthenticated
 //! client derived from the active domain.
 
+use crate::g2v::client::{Client, ClientBuilder, RestClient};
 use http::Method;
 use serde::de::DeserializeOwned;
-use sunbeam_g2v::client::{Client, ClientBuilder, RestClient};
 
 use super::types::{self, *};
 use crate::error::{Result, SunbeamError};
@@ -229,7 +229,7 @@ impl LokiClient {
             .rest()
             .request(Method::POST, "push")?
             .header(http::header::CONTENT_TYPE, "application/json")?
-            .json(body)
+            .json(body)?
             .send()
             .await?;
         let status = resp.status();
@@ -293,8 +293,8 @@ mod tests {
 mod container_tests {
     use std::time::Duration;
 
+    use crate::g2v::client::ClientBuilder;
     use serde_json::json;
-    use sunbeam_g2v::client::ClientBuilder;
 
     use super::LokiClient;
     use crate::testing::Loki;
@@ -326,6 +326,7 @@ mod container_tests {
 
     #[tokio::test]
     async fn loki_push_and_query() {
+        crate::testing::init_docker_host();
         let (_container, client) = boot().await;
 
         let now_ns = std::time::SystemTime::now()
@@ -370,7 +371,8 @@ mod container_tests {
                 Ok(res) => {
                     last = format!(
                         "ok: {}",
-                        serde_json::to_string(&res.data).unwrap_or_default()
+                        serde_json::to_string(&res.data)
+                            .unwrap_or_else(|e| format!("<serialization failed: {e}>"))
                     );
                     if res.status == "success" && last.contains("hello from sdk") {
                         found = true;

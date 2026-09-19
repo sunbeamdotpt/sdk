@@ -1,12 +1,12 @@
 //! Prometheus — metrics API client (`/api/v1`).
 //!
-//! Build a shared [`sunbeam_g2v::client::Client`] and pass it to
+//! Build a shared [`crate::g2v::client::Client`] and pass it to
 //! [`PrometheusClient::new`], or use [`PrometheusClient::connect`] for an
 //! unauthenticated client derived from the active domain.
 
+use crate::g2v::client::{Client, ClientBuilder, RestClient};
 use http::Method;
 use serde::de::DeserializeOwned;
-use sunbeam_g2v::client::{Client, ClientBuilder, RestClient};
 
 use super::types::{self, *};
 use crate::error::{Result, SunbeamError};
@@ -257,7 +257,7 @@ mod tests {
 mod container_tests {
     use std::time::Duration;
 
-    use sunbeam_g2v::client::ClientBuilder;
+    use crate::g2v::client::ClientBuilder;
 
     use super::PrometheusClient;
     use crate::testing::Prometheus;
@@ -293,6 +293,7 @@ mod container_tests {
 
     #[tokio::test]
     async fn prometheus_queries() {
+        crate::testing::init_docker_host();
         let (_container, client) = boot().await;
 
         let result = client.query("up", None).await.expect("instant query");

@@ -8,7 +8,7 @@ use crate::error::{Result, SunbeamError};
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
 use chrono::{DateTime, Utc};
-use rand::RngCore;
+use rand_core::RngCore;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 

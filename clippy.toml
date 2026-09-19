@@ -1,0 +1,15 @@
+# Fleet-wide panic/default ban (SSO-027; SDK-014).
+#
+# `unwrap_used` / `expect_used` are denied via `[workspace.lints.clippy]` in
+# Cargo.toml; this file bans the silent-default family. All failures must be
+# addressed explicitly — match/?/unwrap_or_else with a log line — never a
+# panic and never a silently fabricated default.
+
+# The card spec also lists `Result::expect_or_default` and
+# `Option::or_default`; neither resolves to a reachable method today, so
+# they are omitted rather than shipping dead entries that warn on -D
+# warnings. Re-add if the std surface changes.
+disallowed-methods = [
+    { path = "core::result::Result::unwrap_or_default", reason = "swallows the error — match, ?, or unwrap_or_else with logging" },
+    { path = "core::option::Option::unwrap_or_default", reason = "make the fallback explicit" },
+]

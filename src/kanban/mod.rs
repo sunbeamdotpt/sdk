@@ -2,20 +2,27 @@
 //!
 //! The entire kanban surface area is generated from `buf.build/sunbeamdotpt/kanban`
 //! and exposed under [`v1`]. [`KanbanClient`] wraps a
-//! [`sunbeam_g2v::client::Client`] to provide ready-to-use service clients
+//! [`crate::g2v::client::Client`] to provide ready-to-use service clients
 //! speaking ConnectRPC.
 
 #![allow(missing_docs)]
 
-connectrpc::include_generated!("kanban/_connectrpc.rs");
+// Generated stubs are tool output (connectrpc-build / buffa view codegen
+// emits `unwrap_or_default` internally); exempt from the fleet-wide
+// *_or_default ban, which targets hand-written code.
+#[allow(clippy::disallowed_methods)]
+mod generated {
+    connectrpc::include_generated!("kanban/_connectrpc.rs");
+}
+pub use generated::*;
 
 pub use crate::kanban::sunbeam::kanban::v1;
 
-use connectrpc::client::ClientConfig;
-use std::sync::Arc;
-use sunbeam_g2v::client::{
+use crate::g2v::client::{
     Client as G2vClient, ClientBuilder, ClientBuilderError, ConnectTransport,
 };
+use connectrpc::client::ClientConfig;
+use std::sync::Arc;
 
 /// Errors that can occur when constructing or using a [`KanbanClient`].
 #[derive(Debug, thiserror::Error)]
@@ -168,10 +175,10 @@ impl KanbanClient {
 /// the ones the SDK was compiled against.
 pub mod prelude {
     pub use super::{KanbanClient, KanbanClientError, v1};
+    pub use crate::g2v;
     pub use buffa;
     pub use buffa_types;
     pub use connectrpc;
-    pub use sunbeam_g2v;
 }
 
 #[cfg(test)]
@@ -292,11 +299,11 @@ mod stack_tests {
     use crate::auth::{AuthClient, v1 as iam};
     use crate::testing;
 
+    use crate::g2v::client::BearerToken;
     use buffa::MessageField;
     use buffa_types::google::protobuf::value::Kind;
     use buffa_types::google::protobuf::{Struct, Value};
     use connectrpc::client::CallOptions;
-    use sunbeam_g2v::client::BearerToken;
 
     /// Kanban image with server-side Assignee email population (KANBAN-024 /
     /// KANBAN-035).

@@ -8,7 +8,7 @@
 use crate::error::{Result, ResultExt, SunbeamError};
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
-use rand::RngCore;
+use rand_core::RngCore;
 use rsa::RsaPrivateKey;
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
 use serde::Deserialize;
@@ -44,14 +44,14 @@ pub const SMTP_URI: &str = "smtp://stalwart.stalwart.svc.cluster.local:25/?skip_
 pub fn gen_fernet_key() -> String {
     use base64::Engine;
     let mut buf = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut buf);
+    rand_core::OsRng.fill_bytes(&mut buf);
     base64::engine::general_purpose::URL_SAFE.encode(buf)
 }
 
 /// Generate an RSA 2048-bit DKIM key pair.
 /// Returns (private_pem_pkcs8, public_pem). Returns ("", "") on failure.
 pub fn gen_dkim_key_pair() -> (String, String) {
-    let mut rng = rand::rngs::OsRng;
+    let mut rng = rand_core::OsRng;
     let bits = 2048;
     let private_key = match RsaPrivateKey::new(&mut rng, bits) {
         Ok(k) => k,
@@ -85,7 +85,7 @@ pub fn gen_dkim_key_pair() -> (String, String) {
 pub fn rand_token() -> String {
     use base64::Engine;
     let mut buf = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut buf);
+    rand_core::OsRng.fill_bytes(&mut buf);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf)
 }
 
@@ -93,14 +93,14 @@ pub fn rand_token() -> String {
 pub fn rand_token_n(n: usize) -> String {
     use base64::Engine;
     let mut buf = vec![0u8; n];
-    rand::rngs::OsRng.fill_bytes(&mut buf);
+    rand_core::OsRng.fill_bytes(&mut buf);
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(buf)
 }
 
 /// Generate exactly 32 random alphanumeric characters.
 /// Used for secrets that require a specific string length (e.g. kratos cipher).
 ///
-/// Bytes come from [`rand::rngs::OsRng`] and are rejection-sampled so the
+/// Bytes come from [`rand_core::OsRng`] and are rejection-sampled so the
 /// charset mapping is unbiased.
 pub fn rand_string_32() -> String {
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -109,7 +109,7 @@ pub fn rand_string_32() -> String {
     let mut out = String::with_capacity(32);
     let mut buf = [0u8; 32];
     while out.len() < 32 {
-        rand::rngs::OsRng.fill_bytes(&mut buf);
+        rand_core::OsRng.fill_bytes(&mut buf);
         for &b in &buf {
             if b < LIMIT {
                 out.push(CHARSET[(b % CHARSET.len() as u8) as usize] as char);
@@ -262,7 +262,10 @@ pub async fn get_or_create(
     fields: &[(&str, &(dyn Fn() -> String + Send + Sync))],
     dirty_paths: &mut HashSet<String>,
 ) -> Result<HashMap<String, String>> {
-    let existing = bao.kv_get("secret", path).await?.unwrap_or_default();
+    let existing = bao.kv_get("secret", path).await?.unwrap_or_else(|| {
+        tracing::debug!(msg = "secret absent; seeding a fresh map", path = %path);
+        HashMap::new()
+    });
     let mut result = HashMap::new();
     for (key, default_fn) in fields {
         let val = existing.get(*key).filter(|v| !v.is_empty()).cloned();
@@ -428,7 +431,10 @@ pub fn scw_config(key: &str) -> String {
         .ok()
         .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .unwrap_or_default()
+        .unwrap_or_else(|| {
+            tracing::debug!(msg = "command failed or produced no output");
+            String::new()
+        })
 }
 
 /// Delete a namespaced resource, resolving common VSO kinds by GVK.

@@ -1,13 +1,13 @@
 //! Grafana — dashboards and provisioning API client (`/api`).
 //!
-//! Build a shared [`sunbeam_g2v::client::Client`] and pass it to
+//! Build a shared [`crate::g2v::client::Client`] and pass it to
 //! [`GrafanaClient::new`], or use [`GrafanaClient::connect`] for an
 //! unauthenticated client derived from the active domain.
 
+use crate::g2v::client::{Client, ClientBuilder, RestClient};
 use http::Method;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sunbeam_g2v::client::{Client, ClientBuilder, RestClient};
 
 use super::types::{self, *};
 use crate::error::{Result, SunbeamError};
@@ -394,7 +394,7 @@ impl GrafanaClient {
         if let Some(b) = body {
             req = req
                 .header(http::header::CONTENT_TYPE, "application/json")?
-                .json(b);
+                .json(b)?;
         }
         let resp = req.send().await?;
         let status = resp.status();
@@ -421,7 +421,7 @@ impl GrafanaClient {
         if let Some(b) = body {
             req = req
                 .header(http::header::CONTENT_TYPE, "application/json")?
-                .json(b);
+                .json(b)?;
         }
         let resp = req.send().await?;
         let status = resp.status();
@@ -460,9 +460,9 @@ mod tests {
 mod container_tests {
     use std::time::Duration;
 
+    use crate::g2v::client::ClientBuilder;
     use base64::Engine;
     use serde_json::json;
-    use sunbeam_g2v::client::ClientBuilder;
 
     use super::GrafanaClient;
     use crate::testing::Grafana;
@@ -503,6 +503,7 @@ mod container_tests {
 
     #[tokio::test]
     async fn grafana_datasource_lifecycle() {
+        crate::testing::init_docker_host();
         let (_container, client) = boot().await;
 
         let org = client.get_current_org().await.expect("current org");

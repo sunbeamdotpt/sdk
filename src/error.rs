@@ -172,8 +172,8 @@ impl From<reqwest::Error> for SunbeamError {
     feature = "media",
     feature = "monitoring"
 ))]
-impl From<sunbeam_g2v::client::ClientError> for SunbeamError {
-    fn from(e: sunbeam_g2v::client::ClientError) -> Self {
+impl From<crate::g2v::client::ClientError> for SunbeamError {
+    fn from(e: crate::g2v::client::ClientError) -> Self {
         SunbeamError::Network {
             context: e.to_string(),
             source: None,
