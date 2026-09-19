@@ -3,10 +3,10 @@ type: State
 title: Current state of sdk
 description: What is in flight, what is blocked, what the next session should pick up first.
 tags: [state]
-timestamp: 2026-08-20T00:00:00Z
+timestamp: 2026-09-19T00:00:00Z
 ---
 
-# State — 2026-08-20
+# State — 2026-09-19
 
 ## In flight
 
@@ -80,10 +80,14 @@ timestamp: 2026-08-20T00:00:00Z
 
 ## Pick up first
 
-- SDK-014 (clippy ban) — the only open sdk card; human paused it once, so
-  confirm before diving in.
-- Watch for cli's adoption of v3.3.x (CLI-011) and any fallout from the
-  `From<ConnectError>` → `Connect` variant change.
+- Watch consumer migrations from the g2v deprecation: kanban (client),
+  sso-gateway (server), nats-callout (0.3) — cards filed on 2026-09-19.
+- Run a proper cargo-llvm-cov pass; the 90% org bar is still unmet
+  (61% baseline documented across recent trains).
+- The remote-daemon container suite depends on the pre-pulled images on
+  alpha-0; future NEW image pulls from testcontainers are anonymous (429
+  risk) until registry auth is resident there — one-liner handed to the
+  human (keychain needs interactive approval).
 - Verify whether `proto/sunbeam/kanban/v1/` copies are actually unused by
   `build.rs`; if so, propose removal (escalate first — proto layout may be
   contractual for someone). Confirmed stale this cycle (no `Assignee.email`,
