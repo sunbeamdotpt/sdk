@@ -1,6 +1,49 @@
 # Changelog
 
+## v3.4.0
+
+The Sunbeam Service Framework (g2v) is now vendored into the sdk, TLS crypto
+backends are unified on aws-lc-sys, and the fleet-wide panic/default ban
+(SSO-027 / SDK-014) is enforced. No public API changes for existing
+consumers; new capability is additive and feature-gated.
+
+- feat(g2v): vendored `sunbeam-g2v` 0.6.2 (upstream deprecated) as
+  `src/g2v/` — `g2v-client` (implied by search/matrix/media/monitoring and
+  included in `full`), `g2v-server` (axum service runtime with middleware,
+  session auth, health, metrics, telemetry; opt-in, **not** in `full`),
+  `g2v` umbrella, and granular `g2v-nats` / `g2v-sqlx` / `g2v-redis` /
+  `g2v-vault` / `g2v-election` / `g2v-standalone` /
+  `g2v-client-connectrpc`. The sdk is now a two-crate workspace
+  (`g2v-derive`); the circular g2v↔sdk dev-dependency is gone. Ported
+  g2v's integration tests (`tests/g2v_*.rs`) and example. Consumers of the
+  old crate should migrate to these features (see the g2v repo's 0.6.2
+  deprecation notice); heads-up cards filed on kanban, sso-gateway, and
+  nats-callout boards.
+- feat(typescript): the `@sunbeam/g2v` TypeScript client now lives in this
+  repo at `typescript/` (moved from the g2v repo).
+- feat(tls): one crypto backend everywhere this crate controls the choice —
+  `kube` selects `aws-lc-rs` explicitly (its default selects ring), `tonic`
+  gains `tls-aws-lc` (its TLS is providerless), `testcontainers` drops its
+  ring default in the dev graph, and the vendored g2v carries sqlx
+  `tls-rustls-aws-lc-rs` + sans-ring async-nats. ring remains only
+  transitively (wfe → kube 3.1/sqlx, boringtun in sunbeam-net); WFE-003
+  filed for the wfe-side flips. Tree-shaken `features = ["kube"]` builds
+  now compile rustls with zero ring.
+- feat(lint): SSO-027 / SDK-014 — clippy denies `unwrap_used`,
+  `expect_used`, and the `*_or_default` family (workspace lints +
+  `clippy.toml`, `priority = -1`). ~35 production violations fixed with
+  explicit handling and logging; tests exempt via `cfg_attr(test, allow)`;
+  generated stubs exempt at their include sites.
+- fix(testing): container builders run against remote TLS Docker daemons —
+  `testing::init_docker_host` mirrors the active Docker context
+  (DOCKER_HOST/DOCKER_CERT_PATH/DOCKER_TLS_VERIFY) and pins the aws-lc-rs
+  provider; `testing::util::build_image` uses bollard's classic builder
+  (works over TLS and on socktainer) and drains the build stream.
+- chore(deps): `rand` unified to 0.10; dead `arc-swap` dropped; reqwest
+  gains `form` (OAuth2 token endpoints).
+
 ## v3.3.3
+
 
 NATS testcontainers builder, plus a configurable NATS image for the
 `testing::Kanban` orchestrator. No API changes to library consumers.
