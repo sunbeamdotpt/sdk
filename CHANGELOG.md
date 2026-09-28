@@ -1,5 +1,24 @@
 # Changelog
 
+## v3.4.1
+
+Patch release (2026-09-28): the `testing::Kanban` stack swaps its dead
+MinIO container for RustFS. No public API changes — `MINIO_PORT` /
+`with_minio_tag` remain as aliases of the new `S3_PORT` / `with_s3_tag`.
+
+- fix(testing): `testing::Kanban` now boots `rustfs/rustfs:1.0.0` instead
+  of `minio/minio:RELEASE.2025-02-28T09-55-16Z`. MinIO stopped publishing
+  community-edition images on 2025-10-23 and the Docker Hub repository has
+  since been removed entirely, so the pinned tag was unpullable on any
+  cache-cold daemon. Readiness is now the RustFS `/health` probe and the
+  container command is `/data` (the image entrypoint is the `rustfs`
+  binary); credentials are `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY`
+  (`rustfsadmin`). The hand-rolled SigV4 `create_s3_bucket` works
+  unchanged (verified against 1.0.0), and the full kanban stack test runs
+  green against the new container. Consumers of `testing::Kanban` (auth
+  feature) now exercise their stack's S3 against RustFS. Mirror fix
+  tracked for the kanban repo's own test harness as KANBAN-066.
+
 ## v3.4.0
 
 The Sunbeam Service Framework (g2v) is now vendored into the sdk, TLS crypto
