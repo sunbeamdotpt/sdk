@@ -446,3 +446,58 @@ was noticed.
   no project, filed on sdk dev board per charter), KANBAN-066 updated
   with the release note.
 
+
+## 2026-09-28 — iapi client vendored in; connectrpc 0.7 → 0.9
+
+- **`sdk::iapi` landed (UNRELEASED).** New `iapi` feature (in `full`) +
+  `IapiClient` on the kanban pattern: one cloneable client, accessors for
+  all eleven `sunbeam.iapi.v1` services. Key decision: iapi publishes no
+  BSR module (its README says "local module only"), so build.rs compiles
+  the stubs from protos **vendored** under `proto/sunbeam/iapi` — the
+  established pattern here (Keto protos, eliza fixture), since a path
+  reference into `../iapi` would break git-tag consumers. Drift risk is
+  real and tracked as a card (mirrors SDK-017 for kanban). Wiremock test
+  proves the generated stack end-to-end (GetRegion, proto codec).
+- **connectrpc 0.9 upgrade (human asked in-session: "any chance we can
+  also update to the latest version of connectrpc?").** The 0.7 pin was a
+  charter rule-3 pair ("0.8 broke AuthClient ConnectTransport interop"),
+  so I probed before answering: bumped all four crates to the 0.9 line
+  and compiled. Findings: the documented break does NOT extend to 0.9 —
+  lib, auth/kanban/iapi codegen, and the vendored g2v client+server
+  stacks compile clean; 480/480 lib tests pass; all in-process g2v
+  integration tests pass (client e2e with real axum server: unary +
+  server-streaming ConnectRPC, retry, circuit breaker; auth middleware;
+  introspection; authorization). Only three mechanical 0.9 changes, all
+  in hand-written code: 0.9 removed the `streaming` cargo feature
+  (dropped from `g2v-server`), `MessageField` pins an `Inline<T>` marker
+  now (one helper signature in `tests/sso_gateway_client.rs`), and
+  `StreamMessage::reborrow` became `view()` (`tests/g2v_client_e2e.rs`).
+  Decision: kept the upgrade in this same train, documented the new pin
+  (0.9 line moves as a set: runtime + connectrpc-build + buffa) in
+  Cargo.toml comments and charter rule 3. Docker-backed suites compile
+  clean but were not run this session — worth a `--features testing`
+  container run before or shortly after the human cuts the tag.
+- Gates: fmt, clippy (default + testing, all-targets), 480/480
+  nextest --lib, plus the g2v integration sweep above.
+
+## 2026-09-28 — v3.5.0 release train
+
+- Cut by hand per charter (human: "go ahead and cut the next minor
+  release"). Gates re-run green on the exact release tree (fmt, clippy
+  all-targets default + testing, 480/480 nextest --lib). Work commit
+  `98f39129` (feat: iapi client module; connectrpc 0.7 -> 0.9), release
+  commit `f8778f97` (chore(release): 3.5.0, CHANGELOG), lightweight tag
+  `v3.5.0` on the release commit; mainline + tag pushed to origin.
+- **Split decision**: this train the Cargo.toml version bump rode in the
+  work commit instead of the release commit — the iapi feature and the
+  0.9 bumps share hunks-adjacent regions of the manifest, and splitting
+  shared files for history aesthetics is exactly how v3.4.1's release
+  commit went wrong. The tagged tree is the released artifact: verified
+  `git show v3.5.0:Cargo.toml` says 3.5.0 and `git status --short`
+  before each commit showed only the intended remainder.
+- Consumer cards: KANBAN-067 + PROXY-009 (bump at next train; align any
+  direct connectrpc/buffa deps to 0.9), IAPI-014 (bump from v3.4.0,
+  adopt the new sdk `iapi` feature, re-copy protos when the contract
+  changes), SDK-023 on the sdk dev board for nats-callout (no project).
+- Re-vendor follow-up card filed on the sdk dev board for the vendored
+  `proto/sunbeam/iapi` copies (no BSR module upstream to export from).

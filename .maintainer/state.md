@@ -10,6 +10,34 @@ timestamp: 2026-09-28T00:00:00Z
 
 ## In flight
 
+- **v3.5.0 RELEASED (2026-09-28)** — `iapi` client + connectrpc 0.9.
+  Work in `98f39129`, release commit `f8778f97`, lightweight tag
+  `v3.5.0`, pushed by hand (mainline + tag). Consumer heads-up cards:
+  KANBAN-067, PROXY-009, IAPI-014, SDK-023 (nats-callout — no board,
+  filed here). Drift watch: re-vendor card on the sdk dev board for
+  `proto/sunbeam/iapi` (no BSR module upstream). Docker-backed suites
+  compiled clean but were NOT run this session — schedule a
+  `--features testing` container run (and the sso_gateway_client stack
+  test) at the next convenience. Body of work, as released:
+  1. **`sdk::iapi`** — new `iapi` feature (in `full`) with `IapiClient`,
+     ConnectRPC accessors for all eleven `sunbeam.iapi.v1` services
+     (regions, networks, VMs, disks, images, blueprints, clusters,
+     ledger, DNS, audit, rehydrate). Stubs generated at build time from
+     protos **vendored** under `proto/sunbeam/iapi` — iapi keeps its buf
+     module local, no BSR.
+  2. **connectrpc 0.7 → 0.9** (human-directed in-session):
+     runtime 0.9.1 / connectrpc-build 0.9.0 / buffa+buffa-types 0.9.2.
+     The old 0.7 pin's reason (0.8 broke AuthClient ConnectTransport
+     interop) does NOT extend to 0.9: 480/480 lib tests, all in-process
+     g2v integration tests green (client e2e incl. unary + streaming
+     over a real axum server). Mechanical breaks fixed in hand-written
+     test code: `MessageField` now pins an `Inline<T>` marker
+     (`tests/sso_gateway_client.rs`), `StreamMessage::reborrow` became
+     `view()` (`tests/g2v_client_e2e.rs`); 0.9 removed the `streaming`
+     cargo feature (dropped from `g2v-server`). Pin comments +
+     charter rule 3 updated: the 0.9 line moves as a set. Consumers with
+     direct connectrpc/buffa deps must align; prelude consumers track
+     automatically.
 - **v3.4.1 RELEASED (2026-09-28)** — MinIO→RustFS swap shipped:
   `testing::Kanban` defaults to `rustfs/rustfs:1.0.0` (no `1.0` float tag
   exists yet — recheck when 1.0.x ships). Non-breaking: `S3_PORT`/
