@@ -1,5 +1,33 @@
 # Changelog
 
+## v3.5.0
+
+Minor release (2026-09-28): a new feature-gated client for the Sunbeam
+Infrastructure API, and the ConnectRPC stack moves to the 0.9 line.
+Additive for existing consumers — nothing removed, no signature changes.
+
+- feat(iapi): new `iapi` feature and `sdk::iapi` module — ConnectRPC client
+  for the Sunbeam Infrastructure API (`sunbeam.iapi.v1`). One cloneable
+  `IapiClient` (same g2v client stack as `KanbanClient`) exposes accessors
+  for all eleven services: regions, networks, VMs, disks, images,
+  blueprints, clusters, ledger, DNS, audit, and rehydrate. Stubs are
+  generated at build time from the protos vendored under
+  `proto/sunbeam/iapi` — iapi keeps its buf module local (not published to
+  the BSR), so the vendored copies are the generation source and must be
+  refreshed when the iapi contract changes. Additive; included in `full`.
+- feat(deps): connectrpc 0.7 → 0.9 (runtime 0.9.1, connectrpc-build 0.9.0,
+  buffa/buffa-types 0.9.2). The three move as a set — mixed majors don't
+  interoperate. The previous pin to 0.7 dated from v3.4.0, when 0.8 broke
+  the `ConnectTransport` interop used by `AuthClient`; the 0.9 line
+  compiles clean against the vendored g2v client and server stacks and
+  passes the full suite (480/480 `nextest --lib`, including the wiremock
+  tests that drive real ConnectRPC calls through `ConnectTransport`). One
+  mechanical change: connectrpc 0.9 removed the `streaming` cargo feature
+  (streaming is no longer feature-gated upstream), so the `g2v-server`
+  feature drops that reference. Consumers naming these crates through the
+  `auth`/`kanban`/`iapi` preludes track the sdk automatically; any consumer
+  with a direct connectrpc/buffa dependency must align on 0.9.
+
 ## v3.4.1
 
 Patch release (2026-09-28): the `testing::Kanban` stack swaps its dead
