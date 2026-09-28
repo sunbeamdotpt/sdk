@@ -1,0 +1,103 @@
+// Blueprints — iapi's own component catalogue (decision: no Harvester
+// template passthrough). A blueprint encodes the runbooks' component
+// shapes: base sizing + disks + placement posture + protection tier +
+// cloud-init fragments. Stored in iapi's PostgreSQL — the service is
+// fully self-contained and defines no custom CRDs. This API is the
+// CRUD + dry-run front.
+//
+// Blueprint CRUD is plain declarative-object work — no workflow behind it,
+// so Blueprint has no ResourceStatus.
+//
+// Auth: Keto object = blueprint id; verbs iapi/blueprint/create|get|list|
+// update|delete|resolve.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/common.proto";
+import "sunbeam/iapi/v1/disk.proto";
+import "sunbeam/iapi/v1/vm.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service BlueprintService {
+  rpc CreateBlueprint(CreateBlueprintRequest) returns (Blueprint);
+  rpc GetBlueprint(GetBlueprintRequest) returns (Blueprint);
+  rpc ListBlueprints(ListBlueprintsRequest) returns (stream Blueprint);
+  rpc UpdateBlueprint(UpdateBlueprintRequest) returns (Blueprint);
+  rpc DeleteBlueprint(DeleteBlueprintRequest) returns (Blueprint);
+  // Dry-run: renders the effective VirtualMachineSpec and lists the
+  // side effects provisioning would have, without creating anything.
+  rpc ResolveBlueprint(ResolveBlueprintRequest) returns (ResolveBlueprintResponse);
+}
+
+message Blueprint {
+  string id = 1;
+  string name = 2;
+  string tenant_id = 3;
+  string description = 4;
+  // Default sizing (overridable per-instance).
+  int32 vcpu_count = 5;
+  int64 memory_bytes = 6;
+  // Disks provisioned with every instance.
+  repeated DiskSpec disks = 7;
+  // Placement posture: which subnet role instances land in.
+  SubnetSelector placement = 8;
+  ProtectionTier protection_tier = 9;
+  // Cloud-init fragments merged under instance-provided cloud-init
+  // (instance userdata wins on conflicting keys).
+  CloudInit cloud_init = 10;
+  repeated string ssh_authorized_keys = 11;
+  google.protobuf.Timestamp create_time = 12;
+  google.protobuf.Timestamp update_time = 13;
+}
+
+message CreateBlueprintRequest {
+  string name = 1;
+  string description = 2;
+  Blueprint blueprint = 3; // fields 1-3 and timestamps ignored
+}
+
+message GetBlueprintRequest {
+  string id = 1;
+}
+
+message ListBlueprintsRequest {
+  string tenant_id = 1; // optional filter
+}
+
+message UpdateBlueprintRequest {
+  string id = 1;
+  Blueprint blueprint = 2;
+}
+
+message DeleteBlueprintRequest {
+  string id = 1;
+}
+
+message ResolveBlueprintRequest {
+  oneof source {
+    string blueprint_id = 1;
+    Blueprint inline = 2;
+  }
+  BlueprintOverrides overrides = 3;
+  // VPC/subnet the instance would target (refines placement). May carry
+  // only a role, with `region` resolving the VPC.
+  SubnetSelector target = 4;
+  // Region for the plan; optional while one region is ACTIVE.
+  string region = 5;
+}
+
+message ResolveBlueprintResponse {
+  // The exact spec CreateVirtualMachine would run.
+  VirtualMachineSpec spec = 1;
+  // Planned side effects, human-readable, in execution order — e.g.
+  // "create NAD alpha-app in cdg-labs-alpha", "allocate IP from IPPool
+  // alpha-app", "import image ubuntu-24.04 (625 MB)", "create dns record
+  // vm.alpha.labs.cdg.sunbeam.pt".
+  repeated string planned_side_effects = 2;
+}

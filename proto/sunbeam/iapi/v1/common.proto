@@ -1,0 +1,86 @@
+// iapi common types — shared by every service in sunbeam.iapi.v1.
+//
+// iapi is the workflow-backed infrastructure API over Harvester (VMs,
+// storage, networking) and the Rancher management plane (downstream
+// clusters). Domain resources are the API surface; workflows are the
+// implementation and never appear as API objects.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+// The estate's environments and stages, per RFC 0002 §1.2. VPC naming
+// derives from them: cdg-transit, cdg-<env>-<stage>.
+enum Environment {
+  ENVIRONMENT_UNSPECIFIED = 0;
+  ENVIRONMENT_LABS = 1;
+  ENVIRONMENT_BIZ = 2;
+}
+
+enum Stage {
+  STAGE_UNSPECIFIED = 0;
+  STAGE_ALPHA = 1;
+  STAGE_BETA = 2;
+  STAGE_GAMMA = 3;
+  STAGE_PROD = 4;
+}
+
+// Coarse lifecycle phase shared by every workflow-backed iapi resource.
+enum ResourcePhase {
+  RESOURCE_PHASE_UNSPECIFIED = 0;
+  // Accepted; the backing workflow has not started.
+  RESOURCE_PHASE_QUEUED = 1;
+  // Backing workflow running.
+  RESOURCE_PHASE_PROVISIONING = 2;
+  RESOURCE_PHASE_READY = 3;
+  // Usable but with failing conditions (e.g. guest agent unreachable).
+  RESOURCE_PHASE_DEGRADED = 4;
+  RESOURCE_PHASE_DELETING = 5;
+  // Terminal; conditions carry the reason.
+  RESOURCE_PHASE_FAILED = 6;
+  // Imported from the estate by RehydrateService.Apply; lifecycle verbs
+  // stay refused until the object is explicitly adopted (managed stamp).
+  RESOURCE_PHASE_ADOPTED = 7;
+}
+
+// Kubernetes-style status condition.
+message Condition {
+  string type = 1;    // e.g. "NetworkReady", "ImageReady", "AgentReachable"
+  string reason = 2;  // machine-readable, stable
+  string message = 3; // human-readable
+  google.protobuf.Timestamp observed_time = 4;
+}
+
+// ResourceStatus is the projection of the underlying workflow onto a
+// domain resource. workflow_uid exists for log correlation only — it is
+// never an API handle; there is no workflow service.
+message ResourceStatus {
+  ResourcePhase phase = 1;
+  repeated Condition conditions = 2;
+  // Human-readable current step, e.g. "5/11 importing image".
+  string step = 3;
+  string workflow_uid = 4;
+  google.protobuf.Timestamp create_time = 5;
+  google.protobuf.Timestamp update_time = 6;
+}
+
+// Availability posture, RFC 0002 §4.6 (platform-protection recipe).
+enum ProtectionTier {
+  PROTECTION_TIER_UNSPECIFIED = 0;
+  // No availability recipe.
+  PROTECTION_TIER_BASIC = 1;
+  // RunStrategy Always, evictionStrategy LiveMigrate, 60s force-reset.
+  PROTECTION_TIER_PROTECTED = 2;
+}
+
+// Reference to another iapi resource.
+message ResourceRef {
+  string id = 1;
+  string name = 2;
+}

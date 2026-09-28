@@ -49,6 +49,45 @@ fn main() {
         );
     }
 
+    // Sunbeam iapi (Infrastructure API) ConnectRPC client stubs. The iapi
+    // service keeps its protos as a local buf module — not published to the
+    // BSR — so the vendored copies under proto/sunbeam/iapi are the
+    // generation source; refresh them from the iapi repo when its contract
+    // changes (same drift risk as the vendored kanban protos, SDK-017).
+    if env::var("CARGO_FEATURE_IAPI").is_ok() {
+        let proto_dir = manifest_dir.join("proto");
+        let files: Vec<PathBuf> = [
+            "sunbeam/iapi/v1/common.proto",
+            "sunbeam/iapi/v1/region.proto",
+            "sunbeam/iapi/v1/network.proto",
+            "sunbeam/iapi/v1/vm.proto",
+            "sunbeam/iapi/v1/disk.proto",
+            "sunbeam/iapi/v1/image.proto",
+            "sunbeam/iapi/v1/blueprint.proto",
+            "sunbeam/iapi/v1/cluster.proto",
+            "sunbeam/iapi/v1/ledger.proto",
+            "sunbeam/iapi/v1/dns.proto",
+            "sunbeam/iapi/v1/audit.proto",
+            "sunbeam/iapi/v1/rehydrate.proto",
+        ]
+        .iter()
+        .map(|f| proto_dir.join(f))
+        .collect();
+
+        connectrpc_build::Config::new()
+            .files(&files)
+            .includes(&[proto_dir])
+            .out_dir(out_dir.join("iapi"))
+            .include_file("_connectrpc.rs")
+            .emit_rerun_directives(false)
+            .compile()
+            .unwrap_or_else(|e| panic!("failed to compile iapi protos: {e}"));
+
+        for file in &files {
+            println!("cargo:rerun-if-changed={}", file.display());
+        }
+    }
+
     // Vendored g2v framework: compile the eliza example/test proto
     // (connectrpc-build directly; no BSR round-trip — it is a fixture).
     if env::var("CARGO_FEATURE_G2V_SERVER").is_ok() {

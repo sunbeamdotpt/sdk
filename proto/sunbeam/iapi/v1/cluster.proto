@@ -1,0 +1,131 @@
+// Clusters — downstream k3s/RKE2 clusters provisioned through the Rancher
+// plane (W2 cluster-provision): ledger /22 pair allocation, dns-0 records,
+// node VMs via the VM workflow, harvesterconfigs + provisioning cluster on
+// the rancher plane, agent registration, Fleet enrollment.
+//
+// Auth: Keto object = cluster id; verbs iapi/cluster/create|get|list|watch|
+// add-node|remove-node|delete.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/common.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service ClusterService {
+  rpc CreateCluster(CreateClusterRequest) returns (Cluster);
+  rpc GetCluster(GetClusterRequest) returns (Cluster);
+  rpc ListClusters(ListClustersRequest) returns (stream Cluster);
+  rpc WatchClusters(WatchClustersRequest) returns (stream Cluster);
+  rpc AddNode(AddNodeRequest) returns (Cluster);
+  rpc RemoveNode(RemoveNodeRequest) returns (Cluster);
+  // Teardown: drains machines, deletes node VMs, removes dns-0 records,
+  // and QUARANTINES the ledger CIDR pair (never reused — RFC 0002 §3.2).
+  rpc DeleteCluster(DeleteClusterRequest) returns (Cluster);
+}
+
+message Cluster {
+  string id = 1;
+  string name = 2;
+  string tenant_id = 3;
+  string vpc_id = 4;
+  Environment environment = 5;
+  Stage stage = 6;
+  ClusterFlavor flavor = 7;
+  string kubernetes_version = 8;
+  // Ledger-assigned /22 pair, explicit at boot (RFC 0002 §3: a cluster
+  // that cannot state its CIDRs MUST NOT boot). Never 10.42/10.43.
+  string pods_cidr = 9;
+  string services_cidr = 10;
+  repeated ClusterNode nodes = 11;
+  // Opaque reference to the provisioning.cattle.io cluster on the rancher
+  // plane (debug/correlation only).
+  string rancher_ref = 12;
+  // Fleet enrollment status once registered.
+  string fleet_workspace = 13;
+  ResourceStatus status = 14;
+  google.protobuf.Timestamp create_time = 15;
+  google.protobuf.Timestamp update_time = 16;
+  // Server-derived from the cluster's VPC.
+  string region_code = 17;
+}
+
+enum ClusterFlavor {
+  CLUSTER_FLAVOR_UNSPECIFIED = 0;
+  CLUSTER_FLAVOR_K3S = 1;
+  CLUSTER_FLAVOR_RKE2 = 2;
+}
+
+message ClusterNode {
+  string name = 1;
+  NodeRole role = 2;
+  // The node's VM (W1 workflow output).
+  ResourceRef vm = 3;
+  ResourceStatus status = 4;
+}
+
+enum NodeRole {
+  NODE_ROLE_UNSPECIFIED = 0;
+  NODE_ROLE_CONTROL_PLANE = 1;
+  NODE_ROLE_WORKER = 2;
+}
+
+message NodeGroup {
+  NodeRole role = 1;
+  int32 count = 2;
+  // Blueprint for node VMs; must exist and be node-shaped.
+  string blueprint_id = 3;
+  // Sizing override for all nodes in the group.
+  int32 vcpu_count = 4;
+  int64 memory_bytes = 5;
+}
+
+message CreateClusterRequest {
+  string name = 1;
+  string idempotency_key = 2;
+  string vpc_id = 3;
+  Environment environment = 4;
+  Stage stage = 5;
+  ClusterFlavor flavor = 6;
+  string kubernetes_version = 7;
+  repeated NodeGroup node_groups = 8;
+  // Optional explicit CIDRs; default is the next free ledger /22 pair
+  // (allocated + recorded inside the workflow).
+  string pods_cidr = 9;
+  string services_cidr = 10;
+  // Optional extra DNS names to publish for the cluster API.
+  repeated string api_server_aliases = 11;
+}
+
+message GetClusterRequest {
+  string id = 1;
+}
+
+message ListClustersRequest {
+  string vpc_id = 1;    // optional filters
+  string tenant_id = 2;
+}
+
+message WatchClustersRequest {
+  string id = 1; // empty = all
+}
+
+message AddNodeRequest {
+  string cluster_id = 1;
+  NodeGroup group = 2;
+  string idempotency_key = 3;
+}
+
+message RemoveNodeRequest {
+  string cluster_id = 1;
+  string node_name = 2;
+}
+
+message DeleteClusterRequest {
+  string id = 1;
+}

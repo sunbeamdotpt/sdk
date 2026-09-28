@@ -1,0 +1,153 @@
+// Compliance & audit — read-only verification surface, gated by the
+// `audit` relation (see docs/workflow-catalog.md, permissions section).
+//
+// iapi's per-plane ServiceAccounts hold auditor-grade cluster-scoped READ
+// on every inventoried group (plus Events) — deliberately broader than
+// provisioning needs — so this service can report on the ENTIRE estate,
+// including objects created outside iapi (no `iapi.sunbeam.pt/managed`
+// annotation). Writes stay scoped to iapi-owned objects.
+//
+// Auth: every RPC requires the `audit` relation on `iapi_tenant`/<tenant>
+// (tenant-wide audit scope today; region-scoped tuples may refine later).
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/common.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service AuditService {
+  // Everything on the plane matching the filter that iapi does NOT manage
+  // — the compliance officer's drift/unmanaged inventory.
+  rpc ListUnmanagedResources(ListUnmanagedResourcesRequest) returns (stream UnmanagedResource);
+  // Runs the registered compliance checks as a workflow and returns the
+  // report resource (progress via ResourceStatus.step as usual).
+  rpc RunComplianceCheck(RunComplianceCheckRequest) returns (ComplianceReport);
+  rpc GetComplianceReport(GetComplianceReportRequest) returns (ComplianceReport);
+  rpc ListComplianceReports(ListComplianceReportsRequest) returns (stream ComplianceReport);
+  // The append-only audit trail (hash-chained for tamper evidence).
+  // Records every mutation attempt, permission denial, workflow lifecycle
+  // transition, compliance run, and audit-relation read — including this
+  // one.
+  rpc ListAuditEvents(ListAuditEventsRequest) returns (stream AuditEvent);
+}
+
+// One immutable audit record. Rows are hash-chained (each hash covers the
+// payload plus the previous hash) so gaps or edits are detectable.
+message AuditEvent {
+  string id = 1;
+  google.protobuf.Timestamp time = 2;
+  string tenant_id = 3;
+  // Identity or service-account id (sso-gateway subject).
+  string subject = 4;
+  // e.g. "iapi.vm.CreateVirtualMachine", "permission.denied",
+  // "workflow.completed", "audit.read".
+  string action = 5;
+  string resource_kind = 6;
+  string resource_id = 7;
+  // g2v x-request-id — joins to request logs and traces.
+  string request_id = 8;
+  // Joins to workflow state when the action was workflow-backed.
+  string workflow_uid = 9;
+  AuditOutcome outcome = 10;
+  // Small JSON payload with action-specific detail.
+  string details = 11;
+  string hash = 12;
+  string prev_hash = 13;
+}
+
+enum AuditOutcome {
+  AUDIT_OUTCOME_UNSPECIFIED = 0;
+  AUDIT_OUTCOME_SUCCESS = 1;
+  AUDIT_OUTCOME_DENIED = 2;
+  AUDIT_OUTCOME_ERROR = 3;
+}
+
+message ListAuditEventsRequest {
+  // Optional filters.
+  string tenant_id = 1;
+  string subject = 2;
+  string action = 3; // exact or prefix
+  string resource_kind = 4;
+  string resource_id = 5;
+  AuditOutcome outcome = 6;
+  google.protobuf.Timestamp from = 7;
+  google.protobuf.Timestamp to = 8;
+}
+
+// Which management plane an object lives on.
+enum Plane {
+  PLANE_UNSPECIFIED = 0;
+  PLANE_HARVESTER = 1;
+  PLANE_RANCHER = 2;
+}
+
+message UnmanagedResource {
+  Plane plane = 1;
+  // Kind in inventory form, e.g. "virtualmachines.kubevirt.io".
+  string kind = 2;
+  string namespace = 3; // empty for cluster-scoped
+  string name = 4;
+  string region = 5;
+  string uid = 6;
+  google.protobuf.Timestamp create_time = 7;
+}
+
+message ListUnmanagedResourcesRequest {
+  // Optional filters.
+  Plane plane = 1;
+  string region = 2;
+  string kind = 3;
+}
+
+message ComplianceReport {
+  string id = 1;
+  string tenant_id = 2;
+  string region = 3; // empty = all regions
+  repeated Finding findings = 4;
+  // Convenience counts for list views.
+  int32 pass_count = 5;
+  int32 warn_count = 6;
+  int32 fail_count = 7;
+  ResourceStatus status = 8;
+  google.protobuf.Timestamp create_time = 9;
+  google.protobuf.Timestamp update_time = 10;
+}
+
+message Finding {
+  // Stable check identifier, e.g. "LEDGER_CONSISTENCY".
+  string check_id = 1;
+  FindingStatus status = 2;
+  // The resource the finding is about, when specific.
+  ResourceRef resource = 3;
+  string message = 4;
+}
+
+enum FindingStatus {
+  FINDING_STATUS_UNSPECIFIED = 0;
+  FINDING_STATUS_PASS = 1;
+  FINDING_STATUS_WARN = 2;
+  FINDING_STATUS_FAIL = 3;
+}
+
+message RunComplianceCheckRequest {
+  string idempotency_key = 1;
+  // Optional scope; empty = all regions.
+  string region = 2;
+  // Optional subset of check ids; empty = all registered checks.
+  repeated string checks = 3;
+}
+
+message GetComplianceReportRequest {
+  string id = 1;
+}
+
+message ListComplianceReportsRequest {
+  // Optional filters.
+  string region = 1;
+}

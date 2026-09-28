@@ -54,10 +54,10 @@ charter governs *authority and scope*.
    this by vendoring generated stubs; it's deliberate.
 2. Never edit generated code (`src/kanban/client/generated.rs` is gitignored,
    regenerated). Regenerate, don't patch.
-3. **Respect pinned dependency pairs**: connectrpc/buffa 0.7 (pairs with
-   sunbeam-g2v 0.5.2), bollard 0.20 + testcontainers 0.27.3, the RustCrypto
-   line. No naive `cargo update` on these — each pin has a reason in
-   `Cargo.toml` comments.
+3. **Respect pinned dependency pairs**: connectrpc/buffa/connectrpc-build
+   0.9 (runtime + codegen + buffa move as a set), bollard 0.20 +
+   testcontainers 0.27.3, the RustCrypto line. No naive `cargo update` on
+   these — each pin has a reason in `Cargo.toml` comments.
 4. Library code returns structured `Result<T>` — never `println!`/`eprintln!`
    (that's `AGENTS.md` law; the charter repeats it because agents break it).
 5. Never rewrite `.maintainer/log.md` history — append only.

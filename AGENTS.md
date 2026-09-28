@@ -71,6 +71,7 @@ user to install it.
 │   ├── g2v/                # Vendored Sunbeam Service Framework (from g2v 0.6.2):
 │   │                       #   client stack (feature `g2v-client`) + axum server,
 │   │                       #   middleware, metrics, telemetry (`g2v-server`)
+│   ├── iapi/               # Infrastructure API client (ConnectRPC, vendored protos)
 │   ├── media/              # LiveKit Twirp API client + JWT access tokens (g2v-based)
 │   ├── monitoring/         # Prometheus, Loki, Grafana API clients (g2v-based)
 │   ├── openbao.rs          # OpenBao HTTP client
@@ -144,6 +145,7 @@ sdk = { version = "3", default-features = false, features = ["search", "media"] 
 |---------|---------|-------|
 | `auth` | `auth` | sso-gateway IAM client (ConnectRPC stubs via `build.rs`) |
 | `kanban` | `kanban` | Kanban ConnectRPC client (codegen via `build.rs`) |
+| `iapi` | `iapi` | Infrastructure API ConnectRPC client (codegen via `build.rs`, protos vendored under `proto/sunbeam/iapi`) |
 | `wfectl` | `wfectl` | WFE workflow engine gRPC client |
 | `search` | `search` | OpenSearch client (g2v `RestClient`) |
 | `matrix` | `matrix` | Matrix Client-Server client |
@@ -208,6 +210,12 @@ with variants: `Kube`, `Config`, `Network`, `Secrets`, `Build`, `Identity`,
 - **`kanban/`** — gRPC client for the Sunbeam Kanban service: boards, cards,
   projects, templates, attachments, labels, milestones, search, and
   real-time subscriptions.
+- **`iapi/`** — ConnectRPC client for the Sunbeam Infrastructure API
+  (`sunbeam.iapi.v1`): regions, networks, VMs, disks, images, blueprints,
+  clusters, ledger, DNS, audit, and rehydrate. iapi publishes no BSR
+  module; the stubs are generated from the vendored copies under
+  `proto/sunbeam/iapi`, so refresh them from the iapi repo when its
+  contract changes.
 - **`wfectl/`** — gRPC client for the WFE workflow engine: list, run, logs,
   cancel, suspend, resume, and publish workflows remotely.
 - **`search/`, `matrix/`, `media/`, `monitoring/`** — REST clients for

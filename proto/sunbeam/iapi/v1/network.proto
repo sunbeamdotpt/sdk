@@ -1,0 +1,185 @@
+// Network fabric — VPCs, subnets, peerings on the kube-ovn overlay
+// (RFC 0002). Subnet creation encodes the NAD-before-subnet ordering and
+// the three-part provider string; VPC/subnet CIDRs always come from the
+// ledger (LedgerService allocates inside the backing workflows).
+//
+// Auth: Keto object = vpc/subnet/peering id; verbs
+// iapi/network/<resource>/<verb>.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/common.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service NetworkService {
+  rpc CreateVpc(CreateVpcRequest) returns (Vpc);
+  rpc GetVpc(GetVpcRequest) returns (Vpc);
+  rpc ListVpcs(ListVpcsRequest) returns (stream Vpc);
+  rpc WatchVpcs(WatchVpcsRequest) returns (stream Vpc);
+  rpc DeleteVpc(DeleteVpcRequest) returns (Vpc);
+
+  rpc CreateSubnet(CreateSubnetRequest) returns (Subnet);
+  rpc GetSubnet(GetSubnetRequest) returns (Subnet);
+  rpc ListSubnets(ListSubnetsRequest) returns (stream Subnet);
+  rpc WatchSubnets(WatchSubnetsRequest) returns (stream Subnet);
+  // Rejected server-side while VMs are attached (webhook enforces too).
+  rpc DeleteSubnet(DeleteSubnetRequest) returns (Subnet);
+
+  // L3 peering between named VPC pairs is an explicit, reviewed amendment
+  // (RFC 0002 §2 crossover rule 3) — justification is required and lands
+  // in the audit trail.
+  rpc CreatePeering(CreatePeeringRequest) returns (Peering);
+  rpc GetPeering(GetPeeringRequest) returns (Peering);
+  rpc ListPeerings(ListPeeringsRequest) returns (stream Peering);
+  rpc DeletePeering(DeletePeeringRequest) returns (Peering);
+}
+
+// Security zone within a VPC, RFC 0002 §3.1. The per-VPC subnet shape is
+// identical everywhere: infra/app/data are internal, dmz is
+// internet-adjacent (EIP holders). DHCP posture is derived from the role:
+// kube-ovn DHCP on app/data, static via cloud-init on infra/dmz.
+enum SubnetRole {
+  SUBNET_ROLE_UNSPECIFIED = 0;
+  SUBNET_ROLE_INFRA = 1;
+  SUBNET_ROLE_APP = 2;
+  SUBNET_ROLE_DATA = 3;
+  SUBNET_ROLE_DMZ = 4;
+}
+
+message Vpc {
+  string id = 1;
+  string name = 2;
+  string tenant_id = 3;
+  oneof kind {
+    // The shared-infrastructure hub VPC for the region.
+    bool transit = 4;
+    // A stage spoke: cdg-<env>-<stage>.
+    VpcStage stage = 5;
+  }
+  // Ledger-assigned block (a /14 row), RFC 0002 §3.
+  string cidr_block = 6;
+  ResourceStatus status = 7;
+  google.protobuf.Timestamp create_time = 8;
+  google.protobuf.Timestamp update_time = 9;
+  // Region this VPC belongs to (set at creation).
+  string region_code = 10;
+}
+
+message VpcStage {
+  Environment environment = 1;
+  Stage stage = 2;
+}
+
+message Subnet {
+  string id = 1;
+  string name = 2;
+  string vpc_id = 3;
+  string cidr_block = 4;
+  // Logical router gateway; .254 convention, distributed.
+  string gateway = 5;
+  SubnetRole role = 6;
+  bool dhcp_enabled = 7;
+  // The kube-ovn DHCP options: dns=<transit resolver>, router=<gateway>.
+  string dns_resolver = 8;
+  ResourceStatus status = 9;
+  google.protobuf.Timestamp create_time = 10;
+  google.protobuf.Timestamp update_time = 11;
+}
+
+message Peering {
+  string id = 1;
+  string from_vpc_id = 2;
+  string to_vpc_id = 3;
+  // Link net (e.g. 169.254.x.x/30) and static routes both sides.
+  repeated string from_routes = 4;
+  repeated string to_routes = 5;
+  string justification = 6;
+  ResourceStatus status = 7;
+  google.protobuf.Timestamp create_time = 8;
+}
+
+message CreateVpcRequest {
+  string name = 1;
+  string idempotency_key = 2;
+  // Region the VPC lives in. Required when it cannot be resolved from a
+  // single ACTIVE region; typically satisfied by a region's onboarding
+  // workflow creating its planned VPCs.
+  string region = 3;
+  oneof kind {
+    bool transit = 4;
+    VpcStage stage = 5;
+  }
+}
+
+message GetVpcRequest {
+  string id = 1;
+}
+
+message ListVpcsRequest {
+  string tenant_id = 1; // optional filters
+  string region = 2;
+}
+
+message WatchVpcsRequest {
+  string id = 1; // empty = all
+}
+
+message DeleteVpcRequest {
+  string id = 1;
+}
+
+message CreateSubnetRequest {
+  string name = 1;
+  string idempotency_key = 2;
+  string vpc_id = 3;
+  SubnetRole role = 4;
+  // Optional explicit CIDR; default is the per-role ledger pattern
+  // (10.N.<0|1|2|3>.0/24 for infra/app/data/dmz).
+  string cidr_block = 5;
+}
+
+message GetSubnetRequest {
+  string id = 1;
+}
+
+message ListSubnetsRequest {
+  string vpc_id = 1; // optional filter
+}
+
+message WatchSubnetsRequest {
+  string id = 1; // empty = all
+}
+
+message DeleteSubnetRequest {
+  string id = 1;
+}
+
+message CreatePeeringRequest {
+  reserved 1;
+  string idempotency_key = 2;
+  string from_vpc_id = 3;
+  string to_vpc_id = 4;
+  // Routes to install (dst-ip static routes via transit), e.g.
+  // from_routes: ["10.12.0.0/14"], to_routes: ["0.0.0.0/0"].
+  repeated string from_routes = 5;
+  repeated string to_routes = 6;
+  string justification = 7; // required, non-empty
+}
+
+message GetPeeringRequest {
+  string id = 1;
+}
+
+message ListPeeringsRequest {
+  string vpc_id = 1; // optional filter
+}
+
+message DeletePeeringRequest {
+  string id = 1;
+}

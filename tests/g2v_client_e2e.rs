@@ -389,5 +389,6 @@ async fn connectrpc_server_streaming_introduce() {
         .await
         .expect("stream message")
         .expect("message");
-    assert!(msg.reborrow().sentence.contains("Alice"));
+    // connectrpc 0.9: `StreamMessage::reborrow` became the `view()` accessor.
+    assert!(msg.view().sentence.contains("Alice"));
 }

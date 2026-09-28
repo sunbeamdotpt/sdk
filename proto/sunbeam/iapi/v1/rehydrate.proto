@@ -1,0 +1,129 @@
+// Rehydration — reconciling iapi with an estate that already exists
+// (first-deploy adoption). The plane is the source of truth for what
+// exists; iapi's database is the source of truth for what iapi manages
+// and allocates. Rehydration moves facts from the plane into the
+// database and MUST NOT create, update, delete, or restart any workload:
+// the only permissible plane write is stamping the managed annotation on
+// objects explicitly adopted, and only in Apply.
+//
+// Workflow: Plan (read-only dry-run — callable with view alone) → review
+// → Apply (idempotent; re-running converges, never duplicates).
+//
+// Auth: Plan requires the `view` relation on `iapi/rehydrate`; Apply
+// requires `edit` on `iapi/rehydrate` (RFC 0001 §5).
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/audit.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service RehydrateService {
+  // The read-only adoption plan: what would be imported, adopted, or
+  // flagged as a conflict, with reasons. Never writes — not even audit
+  // noise: a plan run is a read, recorded only by the audit-relation
+  // machinery that covers every read.
+  rpc PlanRehydrate(PlanRehydrateRequest) returns (RehydratePlan);
+  // Executes the plan: imports estate objects as ADOPTED rows, stamps the
+  // managed annotation on explicitly adopted objects, and seals the audit
+  // trail so the rehydrated starting state is a tamper-evident
+  // point-in-time. Idempotent: re-running converges, never duplicates.
+  rpc ApplyRehydrate(ApplyRehydrateRequest) returns (RehydrateApplyResult);
+}
+
+message PlanRehydrateRequest {
+  // The operator-declared region mapping — rehydration never invents
+  // regions. Every region the estate spans must be named here; objects
+  // outside these regions are reported as conflicts.
+  repeated RegionMapping regions = 1;
+}
+
+// One region of the estate, declared by the operator.
+message RegionMapping {
+  // The region code, e.g. "cdg". Must match the estate's naming.
+  string code = 1;
+  // The dns-0 zone suffix this region's records live under, e.g.
+  // "cdg.sunbeam.pt.". Empty = "<code>.sunbeam.pt.".
+  string zone = 2;
+  // The region's address pool in the ledger, e.g. "10.64.0.0/14".
+  // Required when the region row does not exist yet: adoption takes the
+  // operator's word for the real block, never a next-free guess.
+  string cidr_block = 3;
+}
+
+message ApplyRehydrateRequest {
+  // Same mapping the plan ran with.
+  repeated RegionMapping regions = 1;
+  // Objects to explicitly adopt: their rows already exist (imported by an
+  // earlier Apply) and this stamps the managed annotation on the plane
+  // object, making it start/stop/delete-able through iapi. Per-object by
+  // design — adoption is never a side effect of import.
+  repeated ResourceTarget stamp_managed = 2;
+}
+
+// One estate object addressed by its plane coordinates.
+message ResourceTarget {
+  Plane plane = 1;
+  // Inventory kind, e.g. "virtualmachines.kubevirt.io".
+  string kind = 2;
+  string namespace = 3; // empty for cluster-scoped
+  string name = 4;
+}
+
+// What Apply would do (or did) with one estate object.
+enum PlanAction {
+  PLAN_ACTION_UNSPECIFIED = 0;
+  // Import (or stamp) this object.
+  PLAN_ACTION_ADOPT = 1;
+  // Nothing to do — already imported, or the object carries the managed
+  // annotation (iapi already owns it).
+  PLAN_ACTION_SKIP = 2;
+  // Rehydration refuses: e.g. the name is already claimed by another
+  // holder, the CIDR overlaps an allocation from a different holder, or
+  // the object lies outside the declared regions.
+  PLAN_ACTION_CONFLICT = 3;
+}
+
+message PlanEntry {
+  Plane plane = 1;
+  // Inventory kind, e.g. "subnets.kubeovn.io".
+  string kind = 2;
+  string namespace = 3; // empty for cluster-scoped
+  string name = 4;
+  string uid = 5;
+  PlanAction action = 6;
+  // Why this action: the human-readable reconciliation decision.
+  string reason = 7;
+  // Small action-specific JSON: observed CIDR, image url, cluster
+  // version + CIDR pair, zone origin.
+  string detail = 8;
+}
+
+message RehydratePlan {
+  repeated PlanEntry entries = 1;
+  int32 adopt_count = 2;
+  int32 skip_count = 3;
+  int32 conflict_count = 4;
+  // The region codes the plan was built against.
+  repeated string regions = 5;
+  google.protobuf.Timestamp create_time = 6;
+}
+
+message RehydrateApplyResult {
+  // Rows imported by this run (0 on a converged re-run).
+  int32 imported = 1;
+  // Objects stamped with the managed annotation by this run.
+  int32 stamped = 2;
+  // Entries refused (the plan's conflicts).
+  int32 conflicts = 3;
+  // True when the post-apply audit-baseline seal was written.
+  bool sealed = 4;
+  // The region codes the apply ran against.
+  repeated string regions = 5;
+  google.protobuf.Timestamp create_time = 6;
+}

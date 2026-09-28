@@ -103,7 +103,9 @@ fn unique_suffix() -> String {
     format!("{ts}-{n}")
 }
 
-fn page_request(size: u32) -> MessageField<v1::PageRequest> {
+// buffa 0.9 view types pin the field marker explicitly: generated stubs
+// carry `Inline<T>` where the old one-parameter form defaulted to `Box<T>`.
+fn page_request(size: u32) -> MessageField<v1::PageRequest, buffa::Inline<v1::PageRequest>> {
     MessageField::some(v1::PageRequest {
         page_size: size,
         page_token: String::new(),
@@ -157,7 +159,9 @@ async fn sso_gateway_tenant_crud() {
             v1::CreateTenantRequest {
                 slug: slug.clone(),
                 display_name: format!("SDK Test Tenant {suffix}"),
-                settings: std::collections::HashMap::new(),
+                // Generated map fields use buffa's foldhash RandomState in
+                // 0.9; let the field type drive the constructor.
+                settings: Default::default(),
                 ..Default::default()
             },
             options.clone(),

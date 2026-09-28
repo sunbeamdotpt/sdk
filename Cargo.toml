@@ -1,6 +1,6 @@
 [package]
 name = "sdk"
-version = "3.4.1"
+version = "3.5.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/sunbeamdotpt/sdk"
@@ -36,6 +36,7 @@ default = ["full"]
 full = [
     "auth",
     "kanban",
+    "iapi",
     "wfectl",
     "search",
     "matrix",
@@ -59,6 +60,15 @@ auth = [
 ]
 # Kanban project management client (ConnectRPC, generated stubs).
 kanban = [
+    "dep:connectrpc",
+    "dep:buffa",
+    "dep:buffa-types",
+    "dep:http-body",
+    "g2v-client-connectrpc",
+]
+# Sunbeam Infrastructure API (iapi) client (ConnectRPC, generated stubs
+# from the vendored proto/sunbeam/iapi copies).
+iapi = [
     "dep:connectrpc",
     "dep:buffa",
     "dep:buffa-types",
@@ -156,7 +166,6 @@ g2v-server = [
     "connectrpc/server",
     "connectrpc/gzip",
     "connectrpc/zstd",
-    "connectrpc/streaming",
     "connectrpc/axum",
     "connectrpc/tls",
 ]
@@ -178,12 +187,15 @@ g2v-standalone = ["g2v-server", "dep:hyper", "dep:hyper-util"]
 sunbeam-net = { git = "https://github.com/sunbeamdotpt/vpn", optional = true }
 
 # ConnectRPC runtime and generated stubs runtime.
-# Pinned to 0.7/0.7: g2v (vendored) and the generated stubs pair with
-# connectrpc 0.7 — 0.8 + buffa 0.8 break the ConnectTransport interop used
-# by AuthClient.
-connectrpc = { version = "0.7", features = ["client"], optional = true }
-buffa = { version = "0.7", features = ["json"], optional = true }
-buffa-types = { version = "0.7", features = ["json"], optional = true }
+# The 0.9 line moves as a set: runtime 0.9 + codegen (connectrpc-build) 0.9 +
+# buffa 0.9 — mixed majors don't interoperate, so bump all three together.
+# The earlier 0.7 pin existed because 0.8 broke the ConnectTransport interop
+# used by AuthClient; 0.9 compiles clean against the vendored g2v and passes
+# the full suite (2026-09-28). Note 0.9 removed the `streaming` cargo
+# feature (streaming is no longer feature-gated upstream).
+connectrpc = { version = "0.9", features = ["client"], optional = true }
+buffa = { version = "0.9", features = ["json"], optional = true }
+buffa-types = { version = "0.9", features = ["json"], optional = true }
 
 # Sunbeam Service Framework derive (Instrumented) — vendored, path dep.
 sunbeam-g2v-derive = { path = "g2v-derive", optional = true }
@@ -335,7 +347,7 @@ tokio-test = "0.4"
 
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
-connectrpc-build = "0.7"
+connectrpc-build = "0.9"
 
 # Vendored g2v end-to-end service example.
 [[example]]

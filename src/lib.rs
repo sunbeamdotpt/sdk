@@ -28,6 +28,9 @@ pub mod constants;
 /// Sunbeam Service Framework — vendored g2v client and server stacks.
 #[cfg(any(feature = "g2v-client", feature = "g2v-server"))]
 pub mod g2v;
+/// Sunbeam Infrastructure API (iapi) client (ConnectRPC).
+#[cfg(feature = "iapi")]
+pub mod iapi;
 /// Kubernetes client setup and manifest operations.
 #[cfg(feature = "kube")]
 pub mod kube;

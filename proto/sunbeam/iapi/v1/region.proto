@@ -1,0 +1,103 @@
+// Regions — the extensibility hook. A region is a physical site (today:
+// cdg on Scaleway Elastic Metal, Paris) with its own Harvester cluster,
+// fabric (transit + stage VPCs), dns-0, egress, and a fresh ledger row.
+// RFC 0002's goal: the second region is fill-in-the-blanks, not a design
+// exercise. Creating a region declares its code, ledger row and VPC plan;
+// the backing workflow (W3 fabric-provision) stands the fabric up.
+//
+// While exactly one ACTIVE region exists, requests may omit region fields
+// and the server resolves it; with more than one, region-ambiguous
+// requests are rejected. Plane connection details (kubeconfigs, endpoints,
+// secrets) are server-side configuration in OpenBao — never wire fields.
+//
+// Auth: Keto object = region code; verbs
+// iapi/region/create|get|list|update|decommission.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "sunbeam/iapi/v1/common.proto";
+import "sunbeam/iapi/v1/network.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service RegionService {
+  rpc CreateRegion(CreateRegionRequest) returns (Region);
+  rpc GetRegion(GetRegionRequest) returns (Region);
+  rpc ListRegions(ListRegionsRequest) returns (stream Region);
+  rpc WatchRegions(WatchRegionsRequest) returns (stream Region);
+  // PLANNED → ACTIVE (fabric ready), or ACTIVE → DEGRADED on plane
+  // health failure (server-driven).
+  rpc UpdateRegionStatus(UpdateRegionStatusRequest) returns (Region);
+  // Terminal state; requires no ACTIVE resources holding the region's
+  // ledger row. The row is quarantined, not reused.
+  rpc DecommissionRegion(DecommissionRegionRequest) returns (Region);
+}
+
+message Region {
+  // Short site code, RFC-1123 label (e.g. "cdg"); permanent once created.
+  string code = 1;
+  string description = 2;
+  RegionPhase phase = 3;
+  // The region's ledger row (a /14-or-larger block, RFC 0002 §3),
+  // allocated inside the onboarding workflow.
+  string cidr_block = 4;
+  // The fabric this region will use: transit + its stage VPCs
+  // (RFC 0002 §2: seven stage VPCs per region — four labs, three biz).
+  repeated PlannedVpc planned_vpcs = 5;
+  ResourceStatus status = 6;
+}
+
+enum RegionPhase {
+  REGION_PHASE_UNSPECIFIED = 0;
+  // Declared; fabric-provision workflow running (or not yet started).
+  REGION_PHASE_PLANNED = 1;
+  // Fabric ready; the region accepts workloads.
+  REGION_PHASE_ACTIVE = 2;
+  // Plane health failing; existing workloads keep running.
+  REGION_PHASE_DEGRADED = 3;
+  // Terminal; ledger row quarantined.
+  REGION_PHASE_RETIRED = 4;
+}
+
+message PlannedVpc {
+  oneof kind {
+    // The region's shared-infrastructure hub (cdg-transit shape).
+    bool transit = 1;
+    VpcStage stage = 2;
+  }
+}
+
+message CreateRegionRequest {
+  string code = 1;
+  string description = 2;
+  string idempotency_key = 3;
+  repeated PlannedVpc planned_vpcs = 4;
+  // Optional explicit row (e.g. 10.64.0.0/14 for the second region);
+  // default is the next free ledger row from the global pool.
+  string cidr_block = 5;
+}
+
+message GetRegionRequest {
+  string code = 1;
+}
+
+message ListRegionsRequest {
+  RegionPhase phase = 1; // optional filter
+}
+
+message WatchRegionsRequest {
+  string code = 1; // empty = all
+}
+
+message UpdateRegionStatusRequest {
+  string code = 1;
+  RegionPhase phase = 2; // PLANNED→ACTIVE transitions only; others server-driven
+}
+
+message DecommissionRegionRequest {
+  string code = 1;
+}

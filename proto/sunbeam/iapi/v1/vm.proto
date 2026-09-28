@@ -1,0 +1,178 @@
+// Virtual machines — the W1 vm-provision workflow surfaced as a resource.
+//
+// Auth: every RPC requires a valid g2v session/bearer. Keto checks are
+// performed per RPC with the resource id as the Keto object
+// (`x-sunbeam-object-id` header for WatchVirtualMachines).
+// Permission verbs: iapi/vm/create|get|list|watch|start|stop|restart|delete.
+//
+// Creation order of operations (runbook §1–§3 prerequisites, then §5.4:
+// encrypted storage class → image → NAD → Subnet → DataVolume → IPPool →
+// VMNC → cloud-init Secret → VM) is encoded in the backing workflow;
+// callers never see individual objects.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/common.proto";
+import "sunbeam/iapi/v1/disk.proto";
+import "sunbeam/iapi/v1/network.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service VirtualMachineService {
+  rpc CreateVirtualMachine(CreateVirtualMachineRequest) returns (VirtualMachine);
+  rpc GetVirtualMachine(GetVirtualMachineRequest) returns (VirtualMachine);
+  // Streams the current state of all VMs once, then closes. No pagination.
+  rpc ListVirtualMachines(ListVirtualMachinesRequest) returns (stream VirtualMachine);
+  // Streams the full resource on every status transition; stays open.
+  rpc WatchVirtualMachines(WatchVirtualMachinesRequest) returns (stream VirtualMachine);
+  rpc StartVirtualMachine(StartVirtualMachineRequest) returns (VirtualMachine);
+  rpc StopVirtualMachine(StopVirtualMachineRequest) returns (VirtualMachine);
+  rpc RestartVirtualMachine(RestartVirtualMachineRequest) returns (VirtualMachine);
+  rpc DeleteVirtualMachine(DeleteVirtualMachineRequest) returns (VirtualMachine);
+}
+
+message VirtualMachine {
+  string id = 1;
+  string name = 2;
+  // Server-populated from the request context. Single tenant today;
+  // reserved for multi-tenant isolation later.
+  string tenant_id = 3;
+  // The blueprint resolved at creation, when created from one.
+  ResourceRef blueprint = 4;
+  ProtectionTier protection_tier = 5;
+  VirtualMachineSpec spec = 6;
+  // Addresses reported by qemu-guest-agent (empty until the agent is up).
+  repeated InterfaceAddress addresses = 7;
+  ResourceStatus status = 8;
+  google.protobuf.Timestamp create_time = 9;
+  google.protobuf.Timestamp update_time = 10;
+  // Server-derived from the VM's VPC/subnet.
+  string region_code = 11;
+}
+
+// VirtualMachineSpec is the raw escape hatch: a VM defined without a
+// blueprint. Blueprint resolution produces this same shape.
+message VirtualMachineSpec {
+  int32 vcpu_count = 1;
+  int64 memory_bytes = 2;
+  // Disks to create with the VM (DataVolumes are created separately from
+  // the VM object — never dataVolumeTemplates).
+  repeated DiskSpec create_disks = 3;
+  // Existing disks to attach by id.
+  repeated string attach_disk_ids = 4;
+  repeated NetworkAttachment networks = 5;
+  // Cloud-init user/network data; iapi stores it in a Secret (userdata /
+  // networkdata keys) — inline VM userData is rejected >2048 bytes, so the
+  // secretRef path is always used server-side.
+  CloudInit cloud_init = 6;
+  // qemu-guest-agent is always installed via cloud-init packages.
+  repeated string ssh_authorized_keys = 7;
+}
+
+message NetworkAttachment {
+  // Target subnet; either explicit or resolved from a VPC + zone role
+  // (RFC 0002 §3.1: infra/app/data/dmz shape).
+  oneof target {
+    string subnet_id = 1;
+    SubnetSelector selector = 2;
+  }
+  // Static IP via vm-dhcp-controller IPPool + VMNC pinning; empty = DHCP.
+  // MACs derive from IPs (02:00:<ip hex>) server-side.
+  string static_ip = 3;
+}
+
+message SubnetSelector {
+  string vpc_id = 1;
+  SubnetRole role = 2;
+}
+
+message CloudInit {
+  string userdata = 1;
+  string networkdata = 2;
+}
+
+message InterfaceAddress {
+  string interface = 1; // guest-visible name, e.g. "enp1s0"
+  string ip = 2;
+  string mac = 3;
+}
+
+message CreateVirtualMachineRequest {
+  string name = 1;
+  string idempotency_key = 2;
+  // Region derives from the network target (subnet or VPC selector);
+  // no explicit region field. Omitted-region resolution: see region.proto.
+  oneof source {
+    BlueprintInstance blueprint = 3;
+    VirtualMachineSpec spec = 4;
+  }
+  ProtectionTier protection_tier = 5;
+  // Optional internal DNS record (dns-0 via PDNS) created once the VM is
+  // Ready. FQDN: <hostname>.<subnet zone>.
+  string hostname = 6;
+  // The estate context of the VM's DNS record (RFC §3.4 convention):
+  // validated DNS labels. When hostname is empty and both fields are set,
+  // the record publishes under <name>.<business_unit>.<env>.<zone> — the
+  // env/business path of the region's zone, so a record's full name says
+  // which environment and business unit own it. An explicit hostname
+  // always wins.
+  string env = 7;
+  string business_unit = 8;
+}
+
+// A blueprint plus per-instance overrides.
+message BlueprintInstance {
+  string blueprint_id = 1;
+  BlueprintOverrides overrides = 2;
+}
+
+message BlueprintOverrides {
+  int32 vcpu_count = 1;
+  int64 memory_bytes = 2;
+  // Keyed by the blueprint's disk name.
+  map<string, int64> disk_size_bytes = 3;
+  // Instance cloud-init wins over blueprint fragments on conflicting keys.
+  CloudInit cloud_init = 4;
+}
+
+message GetVirtualMachineRequest {
+  string id = 1;
+}
+
+message ListVirtualMachinesRequest {
+  // Optional filters.
+  string vpc_id = 1;
+  string subnet_id = 2;
+  ResourcePhase phase = 3;
+  string blueprint_id = 4;
+  string region = 5;
+}
+
+message WatchVirtualMachinesRequest {
+  // Empty = all VMs. Set to filter to one.
+  string id = 1;
+}
+
+message StartVirtualMachineRequest {
+  string id = 1;
+}
+
+message StopVirtualMachineRequest {
+  string id = 1;
+  // Force stop (grace period 0). May leave stale network state.
+  bool force = 2;
+}
+
+message RestartVirtualMachineRequest {
+  string id = 1;
+  bool force = 2;
+}
+
+message DeleteVirtualMachineRequest {
+  string id = 1;
+}

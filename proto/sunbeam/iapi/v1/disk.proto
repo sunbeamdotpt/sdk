@@ -1,0 +1,136 @@
+// Disks — DataVolume lifecycle, deliberately independent of VMs (runbook
+// §3/§5.4: DataVolumes must be created separately from VMs, never as
+// dataVolumeTemplates).
+//
+// Auth: Keto object = disk id; verbs iapi/disk/create|get|list|watch|resize|
+// attach|detach|snapshot|restore|delete. Longhorn internals stay plumbing;
+// only Harvester/CDI-level objects are surfaced.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/common.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service DiskService {
+  rpc CreateDisk(CreateDiskRequest) returns (Disk);
+  rpc GetDisk(GetDiskRequest) returns (Disk);
+  rpc ListDisks(ListDisksRequest) returns (stream Disk);
+  rpc WatchDisks(WatchDisksRequest) returns (stream Disk);
+  rpc ResizeDisk(ResizeDiskRequest) returns (Disk);
+  rpc AttachDisk(AttachDiskRequest) returns (Disk);
+  rpc DetachDisk(DetachDiskRequest) returns (Disk);
+  rpc SnapshotDisk(SnapshotDiskRequest) returns (DiskSnapshot);
+  rpc ListDiskSnapshots(ListDiskSnapshotsRequest) returns (stream DiskSnapshot);
+  rpc RestoreDisk(RestoreDiskRequest) returns (Disk);
+  rpc DeleteDisk(DeleteDiskRequest) returns (Disk);
+}
+
+message Disk {
+  string id = 1;
+  string name = 2;
+  string tenant_id = 3;
+  int64 size_bytes = 4;
+  // Server-side default: the encrypted StorageClass (policy: VM disks MUST
+  // be encrypted, runbook §2).
+  string storage_class = 5;
+  DiskSpec spec = 6;
+  // VM this disk is attached to, if any.
+  ResourceRef attached_to = 7;
+  ResourceStatus status = 8;
+  google.protobuf.Timestamp create_time = 9;
+  google.protobuf.Timestamp update_time = 10;
+  // Disks live on a specific region's Harvester cluster.
+  string region_code = 11;
+}
+
+// Creation spec; shared with VirtualMachineSpec's inline disks.
+message DiskSpec {
+  string name = 1;
+  int64 size_bytes = 2;
+  oneof source {
+    // Blank disk on the (encrypted) StorageClass.
+    bool blank = 3;
+    // Clone from an iapi image.
+    string image_id = 4;
+    // Direct HTTP import (source.http; backing-image-based images cannot
+    // use source.pvc — runbook §3).
+    string http_url = 5;
+  }
+}
+
+message DiskSnapshot {
+  string id = 1;
+  string disk_id = 2;
+  google.protobuf.Timestamp create_time = 3;
+  ResourceStatus status = 4;
+}
+
+message CreateDiskRequest {
+  string name = 1;
+  string idempotency_key = 2;
+  DiskSpec spec = 3;
+  string storage_class = 4; // optional; encrypted default
+  // Optional while one region is ACTIVE; rejected as ambiguous later.
+  string region = 5;
+}
+
+message GetDiskRequest {
+  string id = 1;
+}
+
+message ListDisksRequest {
+  // Optional filters.
+  string attached_to_vm_id = 1;
+  string region = 2;
+}
+
+message WatchDisksRequest {
+  string id = 1; // empty = all
+}
+
+message ResizeDiskRequest {
+  string id = 1;
+  int64 new_size_bytes = 2;
+}
+
+// Bus choice for attachment (virtio default).
+enum DiskBus {
+  DISK_BUS_UNSPECIFIED = 0;
+  DISK_BUS_VIRTIO = 1;
+  DISK_BUS_SCSI = 2;
+  DISK_BUS_SATA = 3;
+}
+
+message AttachDiskRequest {
+  string disk_id = 1;
+  string vm_id = 2;
+  DiskBus bus = 3;
+}
+
+message DetachDiskRequest {
+  string disk_id = 1;
+}
+
+message SnapshotDiskRequest {
+  string disk_id = 1;
+  string idempotency_key = 2;
+}
+
+message ListDiskSnapshotsRequest {
+  string disk_id = 1;
+}
+
+message RestoreDiskRequest {
+  string disk_id = 1;
+  string snapshot_id = 2;
+}
+
+message DeleteDiskRequest {
+  string id = 1;
+}

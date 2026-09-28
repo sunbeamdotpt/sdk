@@ -1,0 +1,61 @@
+// Images — VM image catalog (Harvester VirtualMachineImage + CDI imports).
+//
+// Auth: Keto object = image id; verbs iapi/image/import|get|list|delete.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/common.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service ImageService {
+  rpc ImportImage(ImportImageRequest) returns (Image);
+  rpc GetImage(GetImageRequest) returns (Image);
+  rpc ListImages(ListImagesRequest) returns (stream Image);
+  rpc WatchImages(WatchImagesRequest) returns (stream Image);
+  rpc DeleteImage(DeleteImageRequest) returns (Image);
+}
+
+message Image {
+  string id = 1;
+  string display_name = 2;
+  string tenant_id = 3;
+  string source_url = 4;
+  // Populated once the download completes.
+  int64 size_bytes = 5;
+  ResourceStatus status = 6; // progress via status.step
+  google.protobuf.Timestamp create_time = 7;
+  google.protobuf.Timestamp update_time = 8;
+  // Images live on a specific region's Harvester cluster.
+  string region_code = 9;
+}
+
+message ImportImageRequest {
+  string display_name = 1;
+  string source_url = 2;
+  string idempotency_key = 3;
+  // Optional while one region is ACTIVE; rejected as ambiguous once more
+  // than one exists.
+  string region = 4;
+}
+
+message GetImageRequest {
+  string id = 1;
+}
+
+message ListImagesRequest {
+  string region = 1; // optional filter
+}
+
+message WatchImagesRequest {
+  string id = 1; // empty = all
+}
+
+message DeleteImageRequest {
+  string id = 1;
+}

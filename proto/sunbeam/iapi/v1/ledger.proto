@@ -1,0 +1,109 @@
+// Address ledger — the single source of truth for every CIDR in the estate
+// (RFC 0002 §3). Workflows allocate inside their runs; this service is the
+// operator surface over the same Postgres-backed ledger. Freed blocks are
+// QUARANTINED, never immediately reused.
+//
+// Auth: Keto object = allocation id; verbs iapi/ledger/get|list|reserve|
+// quarantine|release.
+
+syntax = "proto3";
+
+package sunbeam.iapi.v1;
+
+import "google/protobuf/timestamp.proto";
+import "sunbeam/iapi/v1/common.proto";
+
+option java_package = "eu.sunbeamlabs.iapi.v1";
+option java_multiple_files = true;
+option go_package = "github.com/sunbeamdotpt/iapi;iapiv1";
+
+service LedgerService {
+  rpc GetAllocation(GetAllocationRequest) returns (Allocation);
+  rpc ListAllocations(ListAllocationsRequest) returns (stream Allocation);
+  // Manual reserve outside a workflow (e.g. holding space for a planned
+  // region row). Workflow allocations never go through this RPC.
+  rpc ReserveAllocation(ReserveAllocationRequest) returns (Allocation);
+  rpc QuarantineAllocation(QuarantineAllocationRequest) returns (Allocation);
+  // Release an operator-held reservation back to quarantine (not to the
+  // free pool — reuse requires explicit re-activation after review).
+  rpc ReleaseAllocation(ReleaseAllocationRequest) returns (Allocation);
+}
+
+message Allocation {
+  string id = 1;
+  string cidr_block = 2;
+  AllocationKind kind = 3;
+  // ACTIVE (in use), RESERVED (operator-held), QUARANTINED (freed,
+  // not reusable without review).
+  AllocationStatus status = 4;
+  // The iapi resource holding it, when active.
+  ResourceRef holder = 5;
+  string description = 6;
+  // Parent block (e.g. the VPC /14 row a cluster /22 pair came from).
+  string parent_cidr = 7;
+  google.protobuf.Timestamp create_time = 8;
+  google.protobuf.Timestamp update_time = 9;
+  // Region this allocation belongs to (its own code for a region row).
+  string region = 10;
+}
+
+enum AllocationKind {
+  ALLOCATION_KIND_UNSPECIFIED = 0;
+  // Region physical + infrastructure row.
+  ALLOCATION_KIND_PHYSICAL = 1;
+  // Host-cluster block (e.g. 10.48.0.0/13).
+  ALLOCATION_KIND_HOST_CLUSTER = 2;
+  // VPC /14 row.
+  ALLOCATION_KIND_VPC = 3;
+  // In-VPC cluster pair: one /22 pods + one /22 services.
+  ALLOCATION_KIND_CLUSTER_PAIR = 4;
+  // VPC subnet (infra/app/data/dmz /24s).
+  ALLOCATION_KIND_SUBNET = 5;
+  // Scaleway Flexible IP.
+  ALLOCATION_KIND_EIP = 6;
+  // A region's ledger row: a /14-or-larger block, RFC 0002 §3 (future
+  // regions allocate from 10.64.0.0/10 upward).
+  ALLOCATION_KIND_REGION = 7;
+}
+
+enum AllocationStatus {
+  ALLOCATION_STATUS_UNSPECIFIED = 0;
+  ALLOCATION_STATUS_ACTIVE = 1;
+  ALLOCATION_STATUS_RESERVED = 2;
+  ALLOCATION_STATUS_QUARANTINED = 3;
+}
+
+message GetAllocationRequest {
+  string id = 1;
+}
+
+message ListAllocationsRequest {
+  // Optional filters.
+  AllocationKind kind = 1;
+  AllocationStatus status = 2;
+  string parent_cidr = 3;
+  string region = 4;
+}
+
+message ReserveAllocationRequest {
+  // Requested prefix length (e.g. 22) and kind; the ledger picks the next
+  // free block. For SUBNET allocations the parent VPC block is required;
+  // for REGION rows it must be empty.
+  int32 prefix_length = 1;
+  AllocationKind kind = 2;
+  string parent_cidr = 3;
+  string description = 4;
+  string idempotency_key = 5;
+  // Region scope; optional while one region is ACTIVE.
+  string region = 6;
+}
+
+message QuarantineAllocationRequest {
+  string id = 1;
+  string reason = 2;
+}
+
+message ReleaseAllocationRequest {
+  string id = 1;
+  string reason = 2;
+}
