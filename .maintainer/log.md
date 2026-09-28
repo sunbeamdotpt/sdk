@@ -375,3 +375,67 @@ was noticed.
   sso-gateway (server, biggest), nats-callout (0.3, oldest); proxy gets an
   sdk-testing bump note. cli/liminal do not consume g2v (skill map stale —
   corrected in the skill's consumer table by hand).
+
+## 2026-09-28 — MinIO testcontainer replaced with RustFS
+
+- **Why RustFS (not SeaweedFS)**: the human picked it for operational
+  simplicity after the landscape pass. The fidelity argument for SeaweedFS
+  (kanban prod talks to a SeaweedFS filer S3 port) was surfaced and
+  overruled — acceptable because the kanban S3 client is deliberately
+  plain SigV4 over basic ops, so cross-server divergence risk is low.
+  MinIO is gone: Docker Hub repo 404s entirely (CE image publishing
+  stopped 2025-10-23; the repo was later removed), so the pinned
+  `RELEASE.2025-02-28T09-55-16Z` tag is unpullable and the Kanban
+  orchestrator was broken on any cache-cold daemon.
+- **Validated before coding**: pulled `rustfs/rustfs:1.0.0` (GA 2026-09;
+  only stable tags are `1.0.0`/`1.0.0-glibc` — no `1.0` float exists yet,
+  floats are `latest`/`rc`/`beta`/`alpha`), confirmed `/health` on 9000
+  and replayed the SDK's hand-rolled SigV4 `PUT /{bucket}` in Python —
+  200 with `rustfsadmin`/`us-east-1`. Startup takes ~15-25s (slower than
+  MinIO; the 120s startup timeout already covers it).
+- **Non-breaking swap**: default image `rustfs/rustfs:1.0.0`, creds
+  `RUSTFS_ACCESS_KEY`/`RUSTFS_SECRET_KEY` (rustfsadmin), readiness
+  `/health`, cmd `/data` (image entrypoint is the rustfs binary, not
+  `server`). API surface kept compatible: `MINIO_PORT` aliases new
+  `S3_PORT`, `with_minio_tag` aliases new `with_s3_tag` — no
+  `#[deprecated]` (would break consumers' `-D warnings` CI at bump time).
+  Charter escalation not required (no breaking builder API change).
+- **Gates**: fmt; clippy `-D warnings` default + testing; nextest 474/474
+  default lib; full `kanban_stack_exposes_ready_endpoint` green in 65s
+  against alpha-0 (Postgres + NATS + OpenSearch + RustFS + sso-gateway +
+  kanban, attachments bucket on RustFS).
+- **Not done here**: kanban repo's own `test_support/containers.rs` pins
+  the same dead MinIO tag (env-overridable via `KANBAN_TEST_MINIO_IMAGE`)
+  — consumers are not mine to edit; card filed on kanban's dev board.
+  CHANGELOG intentionally untouched (release-time convention).
+
+## 2026-09-28 — v3.4.1 release train
+
+- Shipped the RustFS swap as **v3.4.1**: `Cargo.toml` 3.4.0→3.4.1,
+  CHANGELOG section (references KANBAN-066), tag `v3.4.1` (lightweight,
+  matching `v3.4.0`) on `d9e6ff3c`, pushed by hand. Gates: fmt, clippy
+  `-D warnings` (default + testing), nextest 474/474, full kanban stack
+  container test green (65s). Coverage gate not run — same documented
+  precedent as the 3.3.x/3.4.0 trains (61% baseline vs the 90% org bar).
+- **"CI" was fiction — corrected.** AGENTS.md/charter claimed a WFE
+  pipeline (`workflows.yaml`: lint→test-unit→tag) tagged releases; the
+  human flagged it ("wfe ain't runnin shit") after I'd sat waiting ~15
+  minutes for a CI-built tag that was never coming. The repo has **no
+  CI**: origin is github.com/sunbeamdotpt/sdk and nothing listens on
+  pushes. Fix: tag cut manually; `workflows.yaml` deleted; AGENTS.md
+  CI/CD section replaced with a Releases section (local gates, hand-cut
+  tag), Gitea-PAT security line dropped; charter updated (owned list,
+  wfe bullet, Releases bullet). Fleet-product Gitea mentions deliberately
+  KEPT — `src/kube.rs` gitea-inline-config secret, profiles/manifest
+  fixtures, docs/sunbeam-up.md + service-discovery-labels.md describe the
+  stack's deployed Gitea service, not repo CI.
+- **Toolchain drift gotcha**: local rustfmt 1.9.0 (rustc 1.96) reflows
+  `#![cfg(...)]` attributes that the committed tree kept one-line
+  (`tests/g2v_telemetry_integration.rs`); older rustfmt simply didn't
+  format attribute internals, so both eras' fmt-checks can be satisfied
+  by the reflowed form. Committed as its own style commit (`00287852`).
+  If CI ever returns here, pin the toolchain.
+- **Consumer cards**: PROXY-008 (proxy board), SDK-020 (nats-callout —
+  no project, filed on sdk dev board per charter), KANBAN-066 updated
+  with the release note.
+

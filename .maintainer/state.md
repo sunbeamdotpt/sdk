@@ -3,13 +3,27 @@ type: State
 title: Current state of sdk
 description: What is in flight, what is blocked, what the next session should pick up first.
 tags: [state]
-timestamp: 2026-09-19T00:00:00Z
+timestamp: 2026-09-28T00:00:00Z
 ---
 
-# State — 2026-09-19
+# State — 2026-09-28
 
 ## In flight
 
+- **v3.4.1 RELEASED (2026-09-28)** — MinIO→RustFS swap shipped:
+  `testing::Kanban` defaults to `rustfs/rustfs:1.0.0` (no `1.0` float tag
+  exists yet — recheck when 1.0.x ships). Non-breaking: `S3_PORT`/
+  `with_s3_tag` added; `MINIO_PORT`/`with_minio_tag` kept as aliases.
+  Tag `v3.4.1` cut **by hand** on `d9e6ff3c` — see the no-CI correction
+  below. Still open on the kanban side: their own
+  `test_support/containers.rs` pins the same dead MinIO tag (KANBAN-066).
+- **No CI — correction landed (2026-09-28)** — the "WFE runs
+  `workflows.yaml`" story in AGENTS.md/charter was stale; the repo has no
+  CI at all (origin github.com, nothing listens). `workflows.yaml`
+  deleted; AGENTS.md CI/CD → Releases (local gates, hand-cut tag);
+  Gitea-PAT security line dropped; charter updated. Fleet-product Gitea
+  docs/code (sunbeam-up, service-discovery-labels, kube.rs, profiles)
+  intentionally untouched — that's the deployed Gitea service, not CI.
 - **v3.4.0 RELEASED (2026-09-19)** — three bodies of work, all gates green:
   1. **TLS crypto backends unified on aws-lc-sys** — kube 4.0
      `default-features = false` + `aws-lc-rs` (its default selects ring),
@@ -80,6 +94,9 @@ timestamp: 2026-09-19T00:00:00Z
 
 ## Pick up first
 
+- Bumps for v3.4.1 tracked on cards: KANBAN-066 (kanban's own harness),
+  PROXY-008 (proxy), SDK-020 (nats-callout). Kanban's fix is the real
+  work — sdk's side is done.
 - Watch consumer migrations from the g2v deprecation: kanban (client),
   sso-gateway (server), nats-callout (0.3) — cards filed on 2026-09-19.
 - Run a proper cargo-llvm-cov pass; the 90% org bar is still unmet
