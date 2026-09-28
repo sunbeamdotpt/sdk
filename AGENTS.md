@@ -88,8 +88,7 @@ user to install it.
 │   │   └── env.rs            # daemon socket and environment injection
 │   ├── kanban/             # Kanban board/project management gRPC client
 │   └── wfectl/             # Remote workflow engine gRPC client
-├── workflows.yaml          # WFE CI pipeline definition (lint → test-unit → tag → publish → release)
-└── lima-sunbeam.yaml       # Lima VM spec for local k3s + Cilium + BuildKit provisioning
+├── lima-sunbeam.yaml       # Lima VM spec for local k3s + Cilium + BuildKit provisioning
 ```
 
 ## Build & Test
@@ -129,9 +128,8 @@ cargo doc --no-deps
   traits; the kanban module targets >90% line coverage via `cargo llvm-cov`.
 - Container-backed tests live in `#[cfg(all(test, feature = "testing"))]`
   modules next to the code and use the `testing/` builders (OpenSearch,
-  Tuwunel, LiveKit, Prometheus, Loki, Grafana, OpenBao). They are not run in
-  CI; run them locally with `cargo nextest run --lib --features testing`
-  (requires Docker).
+  Tuwunel, LiveKit, Prometheus, Loki, Grafana, OpenBao). Run them locally
+  with `cargo nextest run --lib --features testing` (requires Docker).
 
 ## Features
 
@@ -296,23 +294,15 @@ fields: `tracing::info!(msg = "...", key = %value)`.
   sufficient.
 - Don't create utility modules or shared abstractions for one-off operations.
 
-## CI / CD
+## Releases
 
-Continuous integration is defined in `workflows.yaml` and executed by the WFE
-workflow engine.
+There is no CI. The maintainer runs the gates locally —
+`cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`,
+`cargo nextest run --lib` — then bumps the version in `Cargo.toml` and tags
+`vX.Y.Z` on the release commit. Consumers pin the crate as a git dependency
+by tag; there is no registry publish or release-creation step.
 
-Pipeline stages:
-
-1. **checkout** — clone and checkout the commit
-2. **lint** — `cargo fmt --all -- --check` + `cargo clippy --all-targets -- -D warnings`
-3. **test-unit** — `cargo nextest run --lib`
-4. **tag** (mainline only) — read version from `Cargo.toml`, create and push a
-   Git tag
-
-There is no registry publish or release-creation stage — consumers pin the
-crate as a git dependency by tag.
-
-Integration tests that require real services are **not** run in CI.
+Integration tests that require real services run locally only.
 
 ## Security Considerations
 
@@ -325,8 +315,7 @@ Integration tests that require real services are **not** run in CI.
 - **Secrets:** OpenBao (HashiCorp Vault fork) is used for KV secrets, database
   engine config, and transit keystore operations. Root tokens are short-lived
   and obtained via port-forward.
-- **Authentication:** OAuth2/OIDC via Hydra for SSO; Gitea personal access
-  tokens for Git operations.
+- **Authentication:** OAuth2/OIDC via Hydra for SSO.
 - **Crypto primitives:** Modern, well-audited crates (chacha20poly1305,
   aes-gcm, argon2, x25519-dalek) are used for encryption, key derivation, and
   VPN tunneling.

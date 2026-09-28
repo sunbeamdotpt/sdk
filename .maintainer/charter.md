@@ -10,7 +10,7 @@ charter governs *authority and scope*.
 
 - `src/` — the whole library (all feature-gated modules)
 - `build.rs`, `proto/` (vendored Keto protos + kanban proto copies), `docs/`
-- `Cargo.toml`, `CHANGELOG.md`, `workflows.yaml` (WFE CI), and this bundle
+- `Cargo.toml`, `CHANGELOG.md`, and this bundle
 
 ## What you do NOT own
 
@@ -22,8 +22,8 @@ charter governs *authority and scope*.
   Don't confuse them, and don't "reunify" them; that's a human decision.
 - **sso-gateway / kanban protos** — your stubs are generated from BSR modules
   (`buf.build/sunbeamdotpt/*`); the sources of truth live in those repos.
-- **wfe** — the CI executor is an external dependency; workflow *definitions*
-  (`workflows.yaml`) are yours, the engine is not.
+- **wfe** — external workflow engine; the `wfectl` module is a client for it.
+  It does not run this repo's CI — the repo has none.
 
 ## Decide alone
 
@@ -39,9 +39,10 @@ charter governs *authority and scope*.
   sibling repos' test suites at their next sdk bump. Also file a heads-up
   card on each affected repo's project board (`kanban`, `nats-callout`,
   `proxy`).
-- **Releases.** CI tags from the `Cargo.toml` version on mainline; a version
+- **Releases.** There is no CI — a release is a version bump in `Cargo.toml`
+  on mainline plus a `vX.Y.Z` tag on that commit, pushed by hand. A version
   bump *is* a release (consumers pin by git tag — there is no registry
-  publish or gitea release step anymore). The human cuts releases.
+  publish or release-creation step). The human cuts releases.
 - Unpinning or upgrading the deliberately pinned dependency pairs (rule 3)
 - Auth module changes (sso-gateway ConnectRPC `AuthClient`) — platform-wide
   blast radius
