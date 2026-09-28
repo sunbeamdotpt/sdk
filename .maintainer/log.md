@@ -413,10 +413,17 @@ was noticed.
 
 - Shipped the RustFS swap as **v3.4.1**: `Cargo.toml` 3.4.0→3.4.1,
   CHANGELOG section (references KANBAN-066), tag `v3.4.1` (lightweight,
-  matching `v3.4.0`) on `d9e6ff3c`, pushed by hand. Gates: fmt, clippy
+  matching `v3.4.0`) on `48929b5f`, pushed by hand. Gates: fmt, clippy
   `-D warnings` (default + testing), nextest 474/474, full kanban stack
   container test green (65s). Coverage gate not run — same documented
   precedent as the 3.3.x/3.4.0 trains (61% baseline vs the 90% org bar).
+- **Own error, caught and fixed**: the release commit (`d9e6ff3c`)
+  initially carried only Cargo.toml/Cargo.lock/CHANGELOG — the source
+  changes sat uncommitted in the worktree, so the first `v3.4.1` tag
+  pointed at a MinIO tree with a RustFS changelog. Caught at the
+  post-scrub `git status`; the code landed as `48929b5f` and the tag was
+  force-moved before any consumer bump (cards went out minutes later).
+  Lesson: `git status --short` before every release commit, not after.
 - **"CI" was fiction — corrected.** AGENTS.md/charter claimed a WFE
   pipeline (`workflows.yaml`: lint→test-unit→tag) tagged releases; the
   human flagged it ("wfe ain't runnin shit") after I'd sat waiting ~15

@@ -14,7 +14,7 @@ timestamp: 2026-09-28T00:00:00Z
   `testing::Kanban` defaults to `rustfs/rustfs:1.0.0` (no `1.0` float tag
   exists yet — recheck when 1.0.x ships). Non-breaking: `S3_PORT`/
   `with_s3_tag` added; `MINIO_PORT`/`with_minio_tag` kept as aliases.
-  Tag `v3.4.1` cut **by hand** on `d9e6ff3c` — see the no-CI correction
+  Tag `v3.4.1` cut **by hand** on `48929b5f` — see the no-CI correction
   below. Still open on the kanban side: their own
   `test_support/containers.rs` pins the same dead MinIO tag (KANBAN-066).
 - **No CI — correction landed (2026-09-28)** — the "WFE runs
