@@ -1,9 +1,9 @@
 //! Kanban server stack container builder.
 //!
 //! Boots everything the kanban server needs on a shared Docker network —
-//! Postgres, NATS (JetStream), OpenSearch, MinIO, and the full sso-gateway
+//! Postgres, NATS (JetStream), OpenSearch, RustFS, and the full sso-gateway
 //! stack — provisions a `kanban-test` tenant and a service application with
-//! `permission:admin` + `tenant:admin` via the IAM API, creates the MinIO
+//! `permission:admin` + `tenant:admin` via the IAM API, creates the
 //! attachments bucket, and then starts the kanban server image.
 //!
 //! Requires the `auth` feature (IAM provisioning uses the generated
@@ -36,13 +36,13 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 /// Bootstrap client id configured by the sso-gateway orchestrator.
 const SYSTEM_BOOTSTRAP_CLIENT_ID: &str = "system-bootstrap-client";
 
-/// MinIO bucket the kanban server stores attachments in (its `S3_BUCKET`
-/// default). The server does not create the bucket itself.
+/// S3 bucket (RustFS) the kanban server stores attachments in (its
+/// `S3_BUCKET` default). The server does not create the bucket itself.
 const S3_BUCKET: &str = "sunbeam-kanban";
 
-/// MinIO root credentials used inside the throwaway stack.
-const MINIO_ROOT_USER: &str = "minioadmin";
-const MINIO_ROOT_PASSWORD: &str = "minioadmin";
+/// RustFS root credentials used inside the throwaway stack.
+const RUSTFS_ACCESS_KEY: &str = "rustfsadmin";
+const RUSTFS_SECRET_KEY: &str = "rustfsadmin";
 
 fn unique_prefix() -> String {
     let nanos = SystemTime::now()
@@ -57,7 +57,7 @@ fn unique_prefix() -> String {
 
 /// Testcontainers orchestrator for the full kanban server stack.
 ///
-/// Starts Postgres, NATS, OpenSearch, MinIO, and an sso-gateway stack on a
+/// Starts Postgres, NATS, OpenSearch, RustFS, and an sso-gateway stack on a
 /// private Docker network, provisions the service credentials the server
 /// needs, and runs a pre-built kanban image against them. The only thing
 /// exposed to callers is the server's public endpoint plus the credentials
@@ -70,7 +70,7 @@ pub struct Kanban {
     nats_image_name: String,
     nats_tag: String,
     opensearch_tag: String,
-    minio_tag: String,
+    s3_tag: String,
     gateway_image_name: String,
     gateway_image_tag: String,
     extra_env: HashMap<String, String>,
@@ -87,8 +87,10 @@ impl Kanban {
 
     /// NATS client port inside its container.
     pub const NATS_PORT: u16 = Nats::PORT;
-    /// MinIO S3 API port inside its container.
-    pub const MINIO_PORT: u16 = 9000;
+    /// S3 (RustFS) API port inside its container.
+    pub const S3_PORT: u16 = 9000;
+    /// Legacy alias for [`Self::S3_PORT`] (the MinIO era).
+    pub const MINIO_PORT: u16 = Self::S3_PORT;
 
     /// Create a new orchestrator with the default pre-built kanban image.
     pub fn new() -> Self {
@@ -139,10 +141,15 @@ impl Kanban {
         self
     }
 
-    /// Override the MinIO image tag.
-    pub fn with_minio_tag(mut self, tag: impl Into<String>) -> Self {
-        self.minio_tag = tag.into();
+    /// Override the RustFS (S3) image tag.
+    pub fn with_s3_tag(mut self, tag: impl Into<String>) -> Self {
+        self.s3_tag = tag.into();
         self
+    }
+
+    /// Legacy alias for [`Self::with_s3_tag`] (the MinIO era).
+    pub fn with_minio_tag(self, tag: impl Into<String>) -> Self {
+        self.with_s3_tag(tag)
     }
 
     /// Inject an extra environment variable into the kanban server container
@@ -160,7 +167,7 @@ impl Kanban {
         let postgres_name = format!("{prefix}-postgres");
         let nats_name = format!("{prefix}-nats");
         let opensearch_name = format!("{prefix}-opensearch");
-        let minio_name = format!("{prefix}-minio");
+        let s3_name = format!("{prefix}-s3");
         let server_name = format!("{prefix}-server");
 
         // ── 1. Backing services on the shared network ────────────────────
@@ -199,15 +206,15 @@ impl Kanban {
             .await
             .map_err(testcontainers::TestcontainersError::other)?;
 
-        // MinIO publishes its port so the test process can create the bucket.
-        let minio = GenericImage::new("minio/minio", &self.minio_tag)
-            .with_exposed_port(ContainerPort::Tcp(Self::MINIO_PORT))
-            .with_mapped_port(0, ContainerPort::Tcp(Self::MINIO_PORT))
-            .with_env_var("MINIO_ROOT_USER", MINIO_ROOT_USER)
-            .with_env_var("MINIO_ROOT_PASSWORD", MINIO_ROOT_PASSWORD)
-            .with_cmd(vec!["server", "/data"])
+        // RustFS publishes its port so the test process can create the bucket.
+        let s3 = GenericImage::new("rustfs/rustfs", &self.s3_tag)
+            .with_exposed_port(ContainerPort::Tcp(Self::S3_PORT))
+            .with_mapped_port(0, ContainerPort::Tcp(Self::S3_PORT))
+            .with_env_var("RUSTFS_ACCESS_KEY", RUSTFS_ACCESS_KEY)
+            .with_env_var("RUSTFS_SECRET_KEY", RUSTFS_SECRET_KEY)
+            .with_cmd(vec!["/data"])
             .with_network(&network)
-            .with_container_name(&minio_name)
+            .with_container_name(&s3_name)
             .with_startup_timeout(Duration::from_secs(120))
             .start()
             .await?;
@@ -228,13 +235,13 @@ impl Kanban {
                 .map_err(testcontainers::TestcontainersError::other)?;
 
         // ── 4. Create the attachments bucket ─────────────────────────────
-        let minio_url = util::container_host_url(&minio, Self::MINIO_PORT)
+        let s3_url = util::container_host_url(&s3, Self::S3_PORT)
             .await
             .map_err(testcontainers::TestcontainersError::other)?;
-        wait_for_http_ok(&format!("{minio_url}/minio/health/live"), 60)
+        wait_for_http_ok(&format!("{s3_url}/health"), 60)
             .await
             .map_err(testcontainers::TestcontainersError::other)?;
-        create_s3_bucket(&minio_url, S3_BUCKET, MINIO_ROOT_USER, MINIO_ROOT_PASSWORD)
+        create_s3_bucket(&s3_url, S3_BUCKET, RUSTFS_ACCESS_KEY, RUSTFS_SECRET_KEY)
             .await
             .map_err(testcontainers::TestcontainersError::other)?;
 
@@ -263,13 +270,10 @@ impl Kanban {
                 "OPENSEARCH_URL",
                 format!("http://{opensearch_name}:{}", OpenSearch::REST_PORT),
             )
-            .with_env_var(
-                "S3_ENDPOINT",
-                format!("http://{minio_name}:{}", Self::MINIO_PORT),
-            )
+            .with_env_var("S3_ENDPOINT", format!("http://{s3_name}:{}", Self::S3_PORT))
             .with_env_var("S3_REGION", "us-east-1")
-            .with_env_var("S3_ACCESS_KEY", MINIO_ROOT_USER)
-            .with_env_var("S3_SECRET_KEY", MINIO_ROOT_PASSWORD)
+            .with_env_var("S3_ACCESS_KEY", RUSTFS_ACCESS_KEY)
+            .with_env_var("S3_SECRET_KEY", RUSTFS_SECRET_KEY)
             .with_env_var("S3_BUCKET", S3_BUCKET)
             .with_startup_timeout(Duration::from_secs(600));
 
@@ -295,7 +299,7 @@ impl Kanban {
             _postgres: postgres,
             _nats: nats,
             _opensearch: opensearch,
-            _minio: minio,
+            _s3: s3,
             _gateway: gateway,
             server,
         })
@@ -311,7 +315,7 @@ impl Default for Kanban {
             nats_image_name: Nats::NAME.to_owned(),
             nats_tag: Nats::DEFAULT_TAG.to_owned(),
             opensearch_tag: OpenSearch::DEFAULT_TAG.to_owned(),
-            minio_tag: "RELEASE.2025-02-28T09-55-16Z".to_owned(),
+            s3_tag: "1.0.0".to_owned(),
             gateway_image_name: SsoGateway::DEFAULT_IMAGE_NAME.to_owned(),
             gateway_image_tag: SsoGateway::DEFAULT_IMAGE_TAG.to_owned(),
             extra_env: HashMap::new(),
@@ -335,7 +339,7 @@ pub struct KanbanHandle {
     #[allow(dead_code)]
     _opensearch: ContainerAsync<GenericImage>,
     #[allow(dead_code)]
-    _minio: ContainerAsync<GenericImage>,
+    _s3: ContainerAsync<GenericImage>,
     #[allow(dead_code)]
     _gateway: SsoGatewayHandle,
     server: ContainerAsync<GenericImage>,
@@ -507,7 +511,7 @@ async fn provision_service_app(
     Ok((tenant.id, secret.client_id, secret.client_secret))
 }
 
-// ── MinIO bucket creation (AWS SigV4, no extra dependencies) ───────────────
+// ── S3 bucket creation (AWS SigV4, no extra dependencies) ──────────────────
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Result<Vec<u8>, BoxError> {
     use hmac::{Hmac, Mac};
@@ -525,7 +529,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 /// Create an S3 bucket with a SigV4-signed `PUT /{bucket}` request.
 ///
-/// MinIO does not auto-create buckets and the SDK deliberately has no S3
+/// RustFS does not auto-create buckets and the SDK deliberately has no S3
 /// client dependency, so the single request is signed by hand with the
 /// already-available `hmac`/`sha2` crates.
 async fn create_s3_bucket(

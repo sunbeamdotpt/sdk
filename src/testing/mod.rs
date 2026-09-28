@@ -38,7 +38,7 @@
 //! | [`Nats`] | `nats` | Messaging / JetStream; optional published port |
 //! | [`Postgres`] | `postgres` | `ory/ory/ory` credentials; optional published port |
 //! | [`SsoGateway`] | `ghcr.io/sunbeamdotpt/sso-gateway` | Full stack (Postgres + Hydra + Kratos + a permission backend + gateway image) on a private network; exposes a single endpoint. Permission backend is OpenFGA by default; switch with `with_permissions_backend` |
-//! | [`Kanban`] | `ghcr.io/sunbeamdotpt/kanban` | Full stack (Postgres + NATS + OpenSearch + MinIO + an [`SsoGateway`] stack + kanban image) on a private network; provisions the `kanban-test` tenant and service credentials via IAM. Requires the `auth` feature |
+//! | [`Kanban`] | `ghcr.io/sunbeamdotpt/kanban` | Full stack (Postgres + NATS + OpenSearch + RustFS + an [`SsoGateway`] stack + kanban image) on a private network; provisions the `kanban-test` tenant and service credentials via IAM. Requires the `auth` feature |
 //!
 //! The builders default to an in-memory / single-node / dev-mode configuration and a
 //! log-based readiness check. When you need to reach a container from the test host,

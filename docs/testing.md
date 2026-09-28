@@ -95,7 +95,8 @@ attach the stack to a shared network with `.with_network(name)` and use
 ## The Kanban orchestrator
 
 `Kanban` boots everything the kanban server needs — Postgres, NATS
-(JetStream), OpenSearch, MinIO, and an [`SsoGateway`](#the-ssogateway-orchestrator)
+(JetStream), OpenSearch, RustFS (S3-compatible object storage), and an
+[`SsoGateway`](#the-ssogateway-orchestrator)
 stack — on a private Docker network, provisions a `kanban-test` tenant and a
 `kanban-service` application (`permission:admin` + `tenant:admin`,
 `cross_tenant`) via the IAM API, creates the attachments bucket, and then
