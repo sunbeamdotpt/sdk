@@ -1,4 +1,8 @@
-#![cfg(all(all(feature = "g2v-server", feature = "g2v-server"), feature = "testing", feature = "g2v-sqlx"))]
+#![cfg(all(
+    all(feature = "g2v-server", feature = "g2v-server"),
+    feature = "testing",
+    feature = "g2v-sqlx"
+))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::disallowed_methods)] // test code may unwrap freely (SSO-027/G2V-003)
 
 //! End-to-end telemetry test: spans created by the server's `TracingLayer`
