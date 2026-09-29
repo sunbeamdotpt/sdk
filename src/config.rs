@@ -275,6 +275,14 @@ pub struct Context {
     )]
     /// Vpn dns search.
     pub vpn_dns_search: String,
+
+    /// Infrastructure API base URL (e.g. "https://iapi.example.com").
+    ///
+    /// The estate endpoint lives on its own subdomain and is not derivable
+    /// from the context's `domain`, so it is configured explicitly.
+    /// Consumed by the CLI's feature-gated infrastructure commands.
+    #[serde(default, rename = "iapi-url", skip_serializing_if = "String::is_empty")]
+    pub iapi_url: String,
 }
 
 /// A named workflow target — a remote wfe-server.
@@ -750,6 +758,60 @@ mod tests {
         let ctx = loaded.contexts.get("production").unwrap();
         assert_eq!(ctx.domain, "sunbeam.pt");
         assert_eq!(ctx.kube_context, "production");
+    }
+
+    #[test]
+    fn test_context_iapi_url_roundtrip() {
+        let mut config = SunbeamConfig::default();
+        config.contexts.insert(
+            "estate".to_string(),
+            Context {
+                domain: "sunbeam.pt".to_string(),
+                iapi_url: "https://iapi.example.com".to_string(),
+                ..Default::default()
+            },
+        );
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(
+            json.contains("\"iapi-url\":\"https://iapi.example.com\""),
+            "iapi-url key missing from serialized config: {json}"
+        );
+        let loaded: SunbeamConfig = serde_json::from_str(&json).unwrap();
+        let ctx = loaded.contexts.get("estate").unwrap();
+        assert_eq!(ctx.iapi_url, "https://iapi.example.com");
+    }
+
+    #[test]
+    fn test_context_iapi_url_omitted_when_empty() {
+        // The field is opt-in per context: an empty iapi_url must not appear
+        // in the serialized config at all (skip_serializing_if), so old
+        // clients and hand-edited configs stay byte-compatible.
+        let mut config = SunbeamConfig::default();
+        config.contexts.insert(
+            "plain".to_string(),
+            Context {
+                domain: "sunbeam.pt".to_string(),
+                ..Default::default()
+            },
+        );
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(
+            !json.contains("iapi-url"),
+            "empty iapi_url must not serialize: {json}"
+        );
+        let loaded: SunbeamConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.contexts.get("plain").unwrap().iapi_url, "");
+    }
+
+    #[test]
+    fn test_context_iapi_url_defaults_empty_on_legacy_config() {
+        // Configs written before the field existed deserialize cleanly with
+        // an empty iapi_url (serde default) — no migration needed.
+        let legacy =
+            r#"{"current-context":"estate","contexts":{"estate":{"domain":"sunbeam.pt"}}}"#;
+        let loaded: SunbeamConfig = serde_json::from_str(legacy).unwrap();
+        let ctx = resolve_context(&loaded, "", None, "");
+        assert_eq!(ctx.iapi_url, "");
     }
 
     #[test]

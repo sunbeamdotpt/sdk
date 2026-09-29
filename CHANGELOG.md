@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.6.0
+
+Minor release (2026-09-28): the unified config gains the Infrastructure API
+endpoint. Additive — nothing removed, no signature changes.
+
+- feat(config): new optional `Context.iapi_url` field (serde key
+  `iapi-url`, `skip_serializing_if` empty, serde-defaulted on read). The
+  estate's iapi endpoint lives on its own subdomain and is not derivable
+  from the context's `domain`, so it is configured explicitly — the same
+  pattern as `vpn-url`. Consumed by the CLI's feature-gated infrastructure
+  commands (`sunbeam vm|disk|vpc|…`, the `iapi`/`internal` build types).
+  Configs written before this field deserialize unchanged; empty values
+  never appear in serialized output.
+
 ## v3.5.0
 
 Minor release (2026-09-28): a new feature-gated client for the Sunbeam
