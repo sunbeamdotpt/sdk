@@ -1,8 +1,8 @@
 # Changelog
 
-## v3.6.0
+## v3.5.1
 
-Minor release (2026-09-28): the unified config gains the Infrastructure API
+Patch release (2026-09-28): the unified config gains the Infrastructure API
 endpoint. Additive — nothing removed, no signature changes.
 
 - feat(config): new optional `Context.iapi_url` field (serde key
