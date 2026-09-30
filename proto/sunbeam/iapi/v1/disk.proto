@@ -78,6 +78,10 @@ message CreateDiskRequest {
   string storage_class = 4; // optional; encrypted default
   // Optional while one region is ACTIVE; rejected as ambiguous later.
   string region = 5;
+  // Required: the VPC the disk belongs to. The plane namespace is the
+  // VPC's name (the kube-ovn one-VPC-per-namespace convention), so a
+  // disk is placed where its future attach targets live.
+  string vpc_id = 6;
 }
 
 message GetDiskRequest {

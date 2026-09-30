@@ -42,6 +42,10 @@ message ImportImageRequest {
   // Optional while one region is ACTIVE; rejected as ambiguous once more
   // than one exists.
   string region = 4;
+  // Required: the VPC whose namespace receives the image (the kube-ovn
+  // one-VPC-per-namespace convention; the estate's own image lives in the
+  // transit VPC's namespace).
+  string vpc_id = 5;
 }
 
 message GetImageRequest {
