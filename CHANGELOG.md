@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.5.4
+
+Patch release (2026-10-01): the ConnectRPC transport streams server-stream
+responses instead of buffering them (IAPI-023/031).
+
+- fix(g2v): `ConnectTransport::send` no longer routes server-stream calls
+  through the buffering unary terminal. The unified client's stack is typed
+  `Response<Bytes>`, so `send()` resolved only after the whole body arrived
+  — for a watch stream that never ends, never. Streaming requests now carry
+  auth + trace propagation and bypass retry/cache/circuit-breaker (unary
+  semantics that do not apply to a stream) over a dedicated reqwest client
+  with the same TLS posture but no whole-request deadline; per-message
+  Connect deadlines still bound streams. Unary calls are unchanged.
+- feat(g2v): reqwest `stream` feature enabled (bytes_stream for the
+  transport).
+
 ## v3.5.3
 
 Patch release (2026-10-01): additive config field + vendored sso-gateway

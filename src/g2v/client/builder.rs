@@ -206,23 +206,33 @@ impl ClientBuilder {
             .map_err(|e| ClientBuilderError::InvalidUrl(e.to_string()))?;
 
         let mut reqwest_builder = reqwest::Client::builder();
+        let mut streaming_builder = reqwest::Client::builder();
+        if let Some(connect_timeout) = self.connect_timeout {
+            reqwest_builder = reqwest_builder.connect_timeout(connect_timeout);
+            streaming_builder = streaming_builder.connect_timeout(connect_timeout);
+        }
+        // The total timeout is unary-only: a server stream may legitimately
+        // outlive any wall-clock bound, so the streaming client (used by the
+        // ConnectRPC transport for server streams) carries the same TLS and
+        // connect-timeout posture but no whole-request deadline.
         if let Some(timeout) = self.timeout {
             reqwest_builder = reqwest_builder.timeout(timeout);
         }
-        if let Some(connect_timeout) = self.connect_timeout {
-            reqwest_builder = reqwest_builder.connect_timeout(connect_timeout);
+        for cert in &self.root_certs {
+            reqwest_builder = reqwest_builder.add_root_certificate(cert.clone());
+            streaming_builder = streaming_builder.add_root_certificate(cert.clone());
         }
-        for cert in self.root_certs {
-            reqwest_builder = reqwest_builder.add_root_certificate(cert);
-        }
-        if let Some(identity) = self.identity {
-            reqwest_builder = reqwest_builder.identity(identity);
+        if let Some(identity) = &self.identity {
+            reqwest_builder = reqwest_builder.identity(identity.clone());
+            streaming_builder = streaming_builder.identity(identity.clone());
         }
         if self.danger_accept_invalid_certs {
             reqwest_builder = reqwest_builder.danger_accept_invalid_certs(true);
+            streaming_builder = streaming_builder.danger_accept_invalid_certs(true);
         }
 
         let reqwest_client = reqwest_builder.build()?;
+        let streaming_client = streaming_builder.build()?;
 
         // Build the middleware stack from the transport outwards:
         // CircuitBreaker -> Retry -> ClientCache -> Auth -> ReqwestService.
@@ -234,6 +244,7 @@ impl ClientBuilder {
         // above the transport so tokens are injected right before sending.
         let service = BoxCloneService::new(ReqwestService::new(reqwest_client));
 
+        let auth_provider = self.auth.clone();
         let service = if let Some(provider) = self.auth {
             BoxCloneService::new(AuthLayer::new(provider).layer(service))
         } else {
@@ -265,8 +276,23 @@ impl ClientBuilder {
             service: std::sync::Arc::new(std::sync::Mutex::new(boxed)),
             base_url,
             default_headers: self.default_headers,
+            streaming: std::sync::Arc::new(StreamingStack {
+                http: streaming_client,
+                auth: auth_provider,
+            }),
         })
     }
+}
+
+/// The streaming transport's dependencies: a reqwest client without a
+/// whole-request deadline (server streams outlive any wall-clock bound) and
+/// the auth provider, so [`super::connect::ConnectTransport`] can inject
+/// credentials without routing a long-lived stream through the buffering
+/// unary terminal. Retry, circuit-breaker, and cache are unary semantics —
+/// a server stream is never retried mid-flight and never cached.
+pub(crate) struct StreamingStack {
+    pub(crate) http: reqwest::Client,
+    pub(crate) auth: Option<std::sync::Arc<dyn TokenProvider>>,
 }
 
 /// Type alias for the boxed, cloneable Tower service used by [`Client`].
@@ -282,6 +308,16 @@ pub struct Client {
     service: std::sync::Arc<std::sync::Mutex<BoxedClientService>>,
     base_url: reqwest::Url,
     default_headers: HeaderMap,
+    /// Streaming transport dependencies (see [`StreamingStack`]).
+    streaming: std::sync::Arc<StreamingStack>,
+}
+
+impl Client {
+    /// The streaming stack for transports that must not buffer the response
+    /// body (ConnectRPC server streams).
+    pub(crate) fn streaming(&self) -> std::sync::Arc<StreamingStack> {
+        std::sync::Arc::clone(&self.streaming)
+    }
 }
 
 impl std::fmt::Debug for Client {
@@ -392,6 +428,14 @@ impl Client {
             service: std::sync::Arc::new(std::sync::Mutex::new(service)),
             base_url,
             default_headers,
+            // Test construction has no streaming posture of its own; a plain
+            // client without a total timeout covers direct-transport tests.
+            streaming: std::sync::Arc::new(StreamingStack {
+                http: reqwest::Client::builder()
+                    .build()
+                    .expect("test streaming client builds"),
+                auth: None,
+            }),
         }
     }
 }
