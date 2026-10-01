@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## v3.5.3
+
+Patch release (2026-10-01): additive config field + vendored sso-gateway
+protos. Nothing removed, no signature changes.
 
 - feat(auth): sso-gateway protos vendored — `proto/iam/v1/*.proto` (13 files,
   copied from the sso-gateway repo) are now the generation source for the
@@ -11,6 +14,11 @@
   existing generated types are unchanged (BSR and repo protos verified
   identical except for the missing `saml_admin.proto`). Consumers must
   refresh the vendored copies when the sso-gateway contract changes.
+- feat(config): new optional `Context.tenant` field (serde key `tenant`,
+  `skip_serializing_if` empty, serde-defaulted on read) — the persistent
+  sso-gateway tenant target. When set, the CLI sends every auth command
+  inside that tenant (`x-tenant-id`); empty keeps the default tenant
+  (server-side resolution from the token subject). cf-style targeting.
 
 ## v3.5.1
 

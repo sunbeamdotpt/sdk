@@ -283,6 +283,15 @@ pub struct Context {
     /// Consumed by the CLI's feature-gated infrastructure commands.
     #[serde(default, rename = "iapi-url", skip_serializing_if = "String::is_empty")]
     pub iapi_url: String,
+
+    /// Persistent sso-gateway tenant target (slug or id), cf-style.
+    ///
+    /// When set, every `sunbeam auth` command operates inside this tenant
+    /// (`x-tenant-id` header) without per-command flags. Empty means the
+    /// caller's default tenant — requests carry no tenant header, and the
+    /// server resolves the tenant from the token subject.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub tenant: String,
 }
 
 /// A named workflow target — a remote wfe-server.
@@ -812,6 +821,57 @@ mod tests {
         let loaded: SunbeamConfig = serde_json::from_str(legacy).unwrap();
         let ctx = resolve_context(&loaded, "", None, "");
         assert_eq!(ctx.iapi_url, "");
+    }
+
+    #[test]
+    fn test_context_tenant_roundtrip() {
+        let mut config = SunbeamConfig::default();
+        config.contexts.insert(
+            "estate".to_string(),
+            Context {
+                domain: "sunbeam.pt".to_string(),
+                tenant: "acme".to_string(),
+                ..Default::default()
+            },
+        );
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(
+            json.contains("\"tenant\":\"acme\""),
+            "tenant key missing from serialized config: {json}"
+        );
+        let loaded: SunbeamConfig = serde_json::from_str(&json).unwrap();
+        let ctx = loaded.contexts.get("estate").unwrap();
+        assert_eq!(ctx.tenant, "acme");
+    }
+
+    #[test]
+    fn test_context_tenant_omitted_when_empty() {
+        // An empty tenant must not appear in the serialized config at all
+        // (skip_serializing_if), so configs stay byte-compatible.
+        let mut config = SunbeamConfig::default();
+        config.contexts.insert(
+            "plain".to_string(),
+            Context {
+                domain: "sunbeam.pt".to_string(),
+                ..Default::default()
+            },
+        );
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(
+            !json.contains("\"tenant\""),
+            "empty tenant must not serialize: {json}"
+        );
+        let loaded: SunbeamConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.contexts.get("plain").unwrap().tenant, "");
+    }
+
+    #[test]
+    fn test_context_tenant_defaults_empty_on_legacy_config() {
+        let legacy =
+            r#"{"current-context":"estate","contexts":{"estate":{"domain":"sunbeam.pt"}}}"#;
+        let loaded: SunbeamConfig = serde_json::from_str(legacy).unwrap();
+        let ctx = resolve_context(&loaded, "", None, "");
+        assert_eq!(ctx.tenant, "");
     }
 
     #[test]
