@@ -20,8 +20,11 @@ charter governs *authority and scope*.
 - **The sibling `cli` repo** — it vendors its own `sunbeam-sdk` v2.0.0-rc
   lineage as a path crate. Similar name, different crate, different repo.
   Don't confuse them, and don't "reunify" them; that's a human decision.
-- **sso-gateway / kanban protos** — your stubs are generated from BSR modules
-  (`buf.build/sunbeamdotpt/*`); the sources of truth live in those repos.
+- **kanban protos** — kanban stubs are generated from the BSR module
+  (`buf.build/sunbeamdotpt/kanban`); the source of truth lives in that repo.
+  sso-gateway protos are vendored under `proto/iam/v1` since 2026-10-01
+  (Sienna's call); the sso-gateway repo remains their source of truth —
+  refresh the copies when its contract changes.
 - **wfe** — external workflow engine; the `wfectl` module is a client for it.
   It does not run this repo's CI — the repo has none.
 
@@ -50,8 +53,9 @@ charter governs *authority and scope*.
 ## Hard rules
 
 1. **`buf` must be on PATH to build** — `build.rs` shells out to `buf export`
-   for the `auth` and `kanban` features and panics without it. Don't "fix"
-   this by vendoring generated stubs; it's deliberate.
+   for the `kanban` feature and panics without it (`auth` switched to the
+   vendored `proto/iam/v1` copies, 2026-10-01). Don't "fix" this by vendoring
+   generated stubs; it's deliberate.
 2. Never edit generated code (`src/kanban/client/generated.rs` is gitignored,
    regenerated). Regenerate, don't patch.
 3. **Respect pinned dependency pairs**: connectrpc/buffa/connectrpc-build

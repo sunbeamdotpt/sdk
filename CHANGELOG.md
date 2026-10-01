@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- feat(auth): sso-gateway protos vendored — `proto/iam/v1/*.proto` (13 files,
+  copied from the sso-gateway repo) are now the generation source for the
+  auth stubs; `build.rs` no longer shells out to `buf export
+  buf.build/sunbeamdotpt/sso-gateway` (kanban still does). This picks up
+  `saml_admin.proto`, which was never published to the BSR: new
+  `SamlAdminServiceClient` plus `AuthClient::saml_admin()`. Additive —
+  existing generated types are unchanged (BSR and repo protos verified
+  identical except for the missing `saml_admin.proto`). Consumers must
+  refresh the vendored copies when the sso-gateway contract changes.
+
 ## v3.5.1
 
 Patch release (2026-09-28): the unified config gains the Infrastructure API

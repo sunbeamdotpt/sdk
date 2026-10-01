@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package iam.v1;
+
+option go_package = "github.com/sunbeamdotpt/sso-gateway/proto/iam/v1;iamv1";
+
+// DeviceAuthorizationRequest initiates an OAuth 2.0 Device Authorization Grant
+// (RFC 8628) on behalf of a client.
+message DeviceAuthorizationRequest {
+  // OAuth2 client identifier.
+  string client_id = 1;
+  // OAuth2 scopes requested by the device.
+  repeated string scope = 2;
+}
+
+// DeviceAuthorizationResponse contains the information needed to display the
+// user code and verification URI on a constrained device.
+message DeviceAuthorizationResponse {
+  // Device verification code.
+  string device_code = 1;
+  // Short user-facing code to be entered on the authorization server.
+  string user_code = 2;
+  // URI where the user enters the user code.
+  string verification_uri = 3;
+  // Optional URI that already embeds the user code.
+  string verification_uri_complete = 4;
+  // Lifetime of the device_code and user_code in seconds.
+  int32 expires_in = 5;
+  // Minimum polling interval in seconds.
+  int32 interval = 6;
+}
+
+// DeviceTokenRequest polls for tokens after a device authorization request.
+message DeviceTokenRequest {
+  // OAuth2 client identifier.
+  string client_id = 1;
+  // Device verification code returned by AuthorizeDevice.
+  string device_code = 2;
+}
+
+// DeviceTokenResponse is the OAuth2 token response for the device grant.
+message DeviceTokenResponse {
+  // Access token issued by the authorization server.
+  string access_token = 1;
+  // Type of the token, typically "Bearer".
+  string token_type = 2;
+  // Lifetime of the access token in seconds.
+  int32 expires_in = 3;
+  // Refresh token, if issued.
+  string refresh_token = 4;
+  // Scopes granted by the authorization server.
+  string scope = 5;
+  // ID token, if the "openid" scope was requested and granted.
+  string id_token = 6;
+}
+
+// GetDeviceVerificationRequest exchanges the user code shown on a device for
+// a device verification challenge.
+message GetDeviceVerificationRequest {
+  // Short user-facing code displayed by the device.
+  string user_code = 1;
+}
+
+// GetDeviceVerificationResponse carries the challenge identifying the device
+// verification request. The response also forwards the authorization server's
+// session cookies as Set-Cookie headers; the caller must relay them to the
+// browser, which needs them when it follows the post-accept redirect.
+message GetDeviceVerificationResponse {
+  // Opaque gateway challenge identifying the device verification request.
+  string challenge = 1;
+  // The user code being confirmed, echoed for display.
+  string user_code = 2;
+}
+
+// AcceptDeviceVerificationRequest approves the user code shown on a device.
+message AcceptDeviceVerificationRequest {
+  // Challenge returned by GetDeviceVerification, or the raw challenge
+  // delivered to the verification app by the authorization server's redirect.
+  string challenge = 1;
+  // The user code being approved.
+  string user_code = 2;
+}
+
+// AcceptDeviceVerificationResponse tells the verification app where to send
+// the browser next to continue the flow.
+message AcceptDeviceVerificationResponse {
+  // URL the browser must follow to continue the flow.
+  string redirect_to = 1;
+}
+
+// OAuth2DeviceService exposes OAuth 2.0 Device Authorization Grant endpoints
+// through a gateway-owned, Ory-agnostic Connect-RPC contract.
+service OAuth2DeviceService {
+  // AuthorizeDevice initiates the device authorization flow.
+  rpc AuthorizeDevice(DeviceAuthorizationRequest) returns (DeviceAuthorizationResponse);
+  // GetDeviceToken polls for tokens using the device code.
+  rpc GetDeviceToken(DeviceTokenRequest) returns (DeviceTokenResponse);
+  // GetDeviceVerification exchanges a user code for a device verification
+  // challenge so the verification app can render the confirmation page.
+  rpc GetDeviceVerification(GetDeviceVerificationRequest) returns (GetDeviceVerificationResponse);
+  // AcceptDeviceVerification approves the user code and returns the URL the
+  // browser must follow to continue the flow.
+  rpc AcceptDeviceVerification(AcceptDeviceVerificationRequest) returns (AcceptDeviceVerificationResponse);
+}

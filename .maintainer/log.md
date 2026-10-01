@@ -501,3 +501,28 @@ was noticed.
   changes), SDK-023 on the sdk dev board for nats-callout (no project).
 - Re-vendor follow-up card filed on the sdk dev board for the vendored
   `proto/sunbeam/iapi` copies (no BSR module upstream to export from).
+
+## 2026-10-01 — sso-gateway protos vendored; auth codegen off unpinned BSR
+
+Sienna directed it in-session ("copy over the sso-gateway protos", "update
+sdk if you have to") for the upcoming CLI auth-surface expansion, so the
+charter's auth-escalation rule was satisfied by the principal herself.
+
+- Copied `sso-gateway/proto/iam/v1/*.proto` (13 files) to `proto/iam/v1/`.
+  Pre-checked drift: BSR export vs repo copies are IDENTICAL except BSR is
+  missing `saml_admin.proto` — so the switch is purely additive for
+  generated types.
+- `build.rs`: the auth feature now compiles from the vendored copies
+  (explicit file list, per-file rerun-if-changed — iapi pattern) into the
+  same `OUT_DIR/sso-gateway` include path; kanban stays on `buf export`.
+- `src/auth/mod.rs`: added `AuthClient::saml_admin()` accessor + test (the
+  one service the BSR module never had); doc comment updated.
+- Gates: 484/484 `cargo test --lib --features auth`, clippy all-targets
+  -D warnings, fmt. Not released — mainline commit only; next tag picks it
+  up (cli currently pins v3.5.2).
+- Charter + architecture.md updated: BSR is kanban-only now; sso-gateway
+  repo remains the source of truth for the vendored copies (refresh on
+  contract change, same discipline as vendored iapi protos).
+- Motivation: the CLI is about to grow a broad `auth` subcommand surface
+  over the full IAM API; unpinned BSR generation was the last unpinned
+  contract in the auth path and CLI-017 had flagged it.

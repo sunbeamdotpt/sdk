@@ -1,0 +1,199 @@
+syntax = "proto3";
+
+package iam.v1;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+option go_package = "github.com/sunbeamdotpt/sso-gateway/proto/iam/v1;iamv1";
+
+// SamlSpClient is a SAML service provider registered for a tenant. The
+// gateway acts as a SAML identity provider and issues assertions to these
+// providers.
+message SamlSpClient {
+  // Gateway identifier for the SP client.
+  string id = 1;
+  // Tenant that owns the SP client.
+  string tenant_id = 2;
+  // SAML entity ID (issuer) the SP authenticates with.
+  string entity_id = 3;
+  // Assertion consumer service URL the IdP posts responses to.
+  string acs_url = 4;
+  // SP certificate (PEM) used to verify signed AuthnRequests; empty when
+  // the SP does not sign its requests.
+  string certificate_pem = 5;
+  // Whether the IdP requires signed AuthnRequests from this SP.
+  bool authn_requests_signed = 6;
+  // Requested NameID format override; empty selects the default.
+  string name_id_format = 7;
+  // Timestamp when the SP client was created.
+  google.protobuf.Timestamp created_at = 8;
+  // Timestamp when the SP client was last updated.
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// SamlIdpKey is a SAML signing key for the tenant's identity provider.
+// Private key material never leaves the store: responses carry the
+// certificate only.
+message SamlIdpKey {
+  // Gateway identifier for the key.
+  string id = 1;
+  // Caller-chosen key identifier (e.g. the certificate fingerprint).
+  string key_id = 2;
+  // Tenant that owns the key.
+  string tenant_id = 3;
+  // The active key signs new assertions; at most one is active per tenant.
+  bool is_active = 4;
+  // X.509 certificate (PEM) matching the signing key.
+  string certificate_pem = 5;
+  // Timestamp when the key was created.
+  google.protobuf.Timestamp created_at = 6;
+  // Timestamp when the key was last updated.
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// SamlNameIdMapping pins the pairwise NameID value issued for an identity
+// at a specific SP. SPs that match users by NameID (e.g. Alibaba CloudSSO
+// matching the username) need explicit mappings.
+message SamlNameIdMapping {
+  // Gateway identifier for the mapping.
+  string id = 1;
+  // Tenant that owns the mapping.
+  string tenant_id = 2;
+  // SP entity id the mapping applies to.
+  string sp_entity_id = 3;
+  // Gateway identity the NameID resolves to.
+  string identity_id = 4;
+  // The NameID value asserted to the SP.
+  string name_id = 5;
+  // Timestamp when the mapping was created.
+  google.protobuf.Timestamp created_at = 6;
+  // Timestamp when the mapping was last updated.
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// CreateSamlSpClientRequest is the input for registering a new SP client.
+message CreateSamlSpClientRequest {
+  // SAML entity ID (issuer) of the SP.
+  string entity_id = 1;
+  // Assertion consumer service URL.
+  string acs_url = 2;
+  // SP certificate (PEM) for signed AuthnRequests; omit when the SP does
+  // not sign its requests.
+  google.protobuf.StringValue certificate_pem = 3;
+  // Whether to require signed AuthnRequests.
+  bool authn_requests_signed = 4;
+  // Requested NameID format override; omit for the default.
+  google.protobuf.StringValue name_id_format = 5;
+}
+
+// GetSamlSpClientRequest is the input for fetching one SP client.
+message GetSamlSpClientRequest {
+  // Gateway identifier of the SP client.
+  string id = 1;
+}
+
+// ListSamlSpClientsRequest is the input for listing a tenant's SP clients.
+message ListSamlSpClientsRequest {}
+
+// ListSamlSpClientsResponse carries the tenant's SP clients.
+message ListSamlSpClientsResponse {
+  // The tenant's registered SP clients.
+  repeated SamlSpClient clients = 1;
+}
+
+// UpdateSamlSpClientRequest replaces an SP client's mutable configuration.
+message UpdateSamlSpClientRequest {
+  // Gateway identifier of the SP client.
+  string id = 1;
+  // SAML entity ID (issuer) of the SP.
+  string entity_id = 2;
+  // Assertion consumer service URL.
+  string acs_url = 3;
+  // SP certificate (PEM) for signed AuthnRequests; omit to clear.
+  google.protobuf.StringValue certificate_pem = 4;
+  // Whether to require signed AuthnRequests.
+  bool authn_requests_signed = 5;
+  // Requested NameID format override; omit to clear.
+  google.protobuf.StringValue name_id_format = 6;
+}
+
+// DeleteSamlSpClientRequest is the input for removing an SP client.
+message DeleteSamlSpClientRequest {
+  // Gateway identifier of the SP client.
+  string id = 1;
+}
+
+// RotateSamlIdpKeyRequest generates a fresh RSA-2048 signing key with a
+// self-signed certificate and makes it the tenant's active key.
+message RotateSamlIdpKeyRequest {
+  // Caller-chosen key identifier; defaults to the new certificate's
+  // fingerprint when omitted.
+  google.protobuf.StringValue key_id = 1;
+}
+
+// ListSamlIdpKeysRequest is the input for listing a tenant's signing keys.
+message ListSamlIdpKeysRequest {}
+
+// ListSamlIdpKeysResponse carries the tenant's signing keys.
+message ListSamlIdpKeysResponse {
+  // The tenant's signing keys (at most one active).
+  repeated SamlIdpKey keys = 1;
+}
+
+// ListSamlNameIdMappingsRequest lists the mappings of one SP.
+message ListSamlNameIdMappingsRequest {
+  // SP entity id to list mappings for.
+  string sp_entity_id = 1;
+}
+
+// ListSamlNameIdMappingsResponse carries the SP's mappings.
+message ListSamlNameIdMappingsResponse {
+  // The SP's NameID mappings.
+  repeated SamlNameIdMapping mappings = 1;
+}
+
+// SetSamlNameIdMappingRequest pins an explicit NameID for an identity.
+message SetSamlNameIdMappingRequest {
+  // SP entity id the mapping applies to.
+  string sp_entity_id = 1;
+  // Gateway identity the NameID resolves to.
+  string identity_id = 2;
+  // The NameID value to assert.
+  string name_id = 3;
+}
+
+// DeleteSamlNameIdMappingRequest removes a NameID mapping.
+message DeleteSamlNameIdMappingRequest {
+  // SP entity id the mapping applies to.
+  string sp_entity_id = 1;
+  // The NameID value to remove.
+  string name_id = 2;
+}
+
+// SamlAdminService manages a tenant's SAML identity-provider configuration:
+// registered service providers, the IdP signing key, and the pairwise
+// NameID mappings. All methods are tenant-scoped to the caller.
+service SamlAdminService {
+  // CreateSamlSpClient registers a new SAML service provider.
+  rpc CreateSamlSpClient(CreateSamlSpClientRequest) returns (SamlSpClient);
+  // GetSamlSpClient retrieves an existing SP client.
+  rpc GetSamlSpClient(GetSamlSpClientRequest) returns (SamlSpClient);
+  // ListSamlSpClients returns every SP client of the tenant.
+  rpc ListSamlSpClients(ListSamlSpClientsRequest) returns (ListSamlSpClientsResponse);
+  // UpdateSamlSpClient replaces an SP client's mutable configuration.
+  rpc UpdateSamlSpClient(UpdateSamlSpClientRequest) returns (SamlSpClient);
+  // DeleteSamlSpClient removes an SP client.
+  rpc DeleteSamlSpClient(DeleteSamlSpClientRequest) returns (google.protobuf.Empty);
+  // RotateSamlIdpKey generates a new active signing key for the tenant.
+  rpc RotateSamlIdpKey(RotateSamlIdpKeyRequest) returns (SamlIdpKey);
+  // ListSamlIdpKeys returns the tenant's signing keys.
+  rpc ListSamlIdpKeys(ListSamlIdpKeysRequest) returns (ListSamlIdpKeysResponse);
+  // ListSamlNameIdMappings returns the NameID mappings of one SP.
+  rpc ListSamlNameIdMappings(ListSamlNameIdMappingsRequest) returns (ListSamlNameIdMappingsResponse);
+  // SetSamlNameIdMapping pins an explicit NameID for an identity.
+  rpc SetSamlNameIdMapping(SetSamlNameIdMappingRequest) returns (SamlNameIdMapping);
+  // DeleteSamlNameIdMapping removes a NameID mapping.
+  rpc DeleteSamlNameIdMapping(DeleteSamlNameIdMappingRequest) returns (google.protobuf.Empty);
+}

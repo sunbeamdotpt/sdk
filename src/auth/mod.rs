@@ -1,7 +1,7 @@
 //! Authentication and identity — SDK client for the Sunbeam sso-gateway.
 //!
-//! The entire sso-gateway surface area is generated from
-//! `buf.build/sunbeamdotpt/sso-gateway` and exposed under [`iam::v1`].
+//! The entire sso-gateway surface area is generated from the vendored
+//! protos under `proto/iam/v1` and exposed under [`iam::v1`].
 //! [`AuthClient`] wraps a [`crate::g2v::client::Client`] to provide ready-to-use
 //! service clients speaking ConnectRPC.
 
@@ -152,6 +152,11 @@ impl AuthClient {
     pub fn agent(&self) -> v1::AgentServiceClient<ConnectTransport> {
         v1::AgentServiceClient::new(self.transport(), self.config.clone())
     }
+
+    /// Client for SAML service-provider and IdP-key administration.
+    pub fn saml_admin(&self) -> v1::SamlAdminServiceClient<ConnectTransport> {
+        v1::SamlAdminServiceClient::new(self.transport(), self.config.clone())
+    }
 }
 
 #[cfg(test)]
@@ -260,5 +265,14 @@ mod tests {
             .unwrap();
         let client = AuthClient::new(g2v, "https://iam.example.com".parse().unwrap()).unwrap();
         let _ = client.agent();
+    }
+
+    #[test]
+    fn test_auth_client_saml_admin_accessor() {
+        let g2v = AuthClient::builder("https://iam.example.com")
+            .build()
+            .unwrap();
+        let client = AuthClient::new(g2v, "https://iam.example.com".parse().unwrap()).unwrap();
+        let _ = client.saml_admin();
     }
 }

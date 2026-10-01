@@ -25,14 +25,43 @@ fn main() {
     println!("cargo:rerun-if-changed={}", lima_yaml_src.display());
 
     // Generate sso-gateway ConnectRPC client stubs for the auth module.
+    // sso-gateway (sunbeam iam/v1) ConnectRPC client stubs. Vendored copies
+    // under proto/iam/v1 are the generation source (Sienna's call,
+    // 2026-10-01) — refresh them from the sso-gateway repo when its
+    // contract changes (same drift risk as the vendored iapi protos).
     if env::var("CARGO_FEATURE_AUTH").is_ok() {
-        generate_connectrpc_module(
-            &out_dir,
-            "sso-gateway",
-            "buf.build/sunbeamdotpt/sso-gateway",
-            &["iam/v1"],
-            None,
-        );
+        let proto_dir = manifest_dir.join("proto");
+        let files: Vec<PathBuf> = [
+            "iam/v1/common.proto",
+            "iam/v1/tenant.proto",
+            "iam/v1/identity.proto",
+            "iam/v1/identity_self_service.proto",
+            "iam/v1/oauth2_device.proto",
+            "iam/v1/oauth2_consent.proto",
+            "iam/v1/application.proto",
+            "iam/v1/client_credential.proto",
+            "iam/v1/permission.proto",
+            "iam/v1/agent.proto",
+            "iam/v1/federation.proto",
+            "iam/v1/saml_admin.proto",
+            "iam/v1/scim.proto",
+        ]
+        .iter()
+        .map(|f| proto_dir.join(f))
+        .collect();
+
+        connectrpc_build::Config::new()
+            .files(&files)
+            .includes(&[proto_dir])
+            .out_dir(out_dir.join("sso-gateway"))
+            .include_file("_connectrpc.rs")
+            .emit_rerun_directives(false)
+            .compile()
+            .unwrap_or_else(|e| panic!("failed to compile sso-gateway protos: {e}"));
+
+        for file in &files {
+            println!("cargo:rerun-if-changed={}", file.display());
+        }
     }
 
     // Generate Kanban ConnectRPC client stubs for the kanban module.
